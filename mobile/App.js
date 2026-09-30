@@ -13,8 +13,8 @@ import {
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 
-// URL inicial padrão do FinControl (Túnel Cloudflare ativo)
-const DEFAULT_URL = 'https://happens-something-certificates-boxes.trycloudflare.com';
+// URL inicial padrão do FinControl (Produção 24/7 na Nuvem Render)
+const DEFAULT_URL = 'https://fincontrolw.onrender.com';
 
 export default function App() {
   const [currentUrl, setCurrentUrl] = useState(DEFAULT_URL);
