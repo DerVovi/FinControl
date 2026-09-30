@@ -62,9 +62,9 @@ export const App: React.FC = () => {
         {isAuthenticated ? (
           renderActiveTabContent()
         ) : (
-          <div className="flex-1 max-w-6xl mx-auto w-full flex flex-col lg:flex-row items-center justify-center gap-12 py-8">
-            {/* Lado esquerdo: Proposta de Valor */}
-            <div className="max-w-xl text-center lg:text-left space-y-6">
+          <div className="flex-1 max-w-6xl mx-auto w-full flex flex-col lg:flex-row items-center justify-center gap-8 lg:gap-12 py-4 lg:py-8">
+            {/* Proposta de Valor / Frases explicativas (Abaixo do login no celular, à esquerda no desktop) */}
+            <div className="max-w-xl text-center lg:text-left space-y-6 order-2 lg:order-1 pt-4 lg:pt-0">
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold">
                 <Wallet className="w-3.5 h-3.5" />
                 <span>Gestão Financeira Sem Complicações</span>
@@ -101,8 +101,8 @@ export const App: React.FC = () => {
               </div>
             </div>
 
-            {/* Lado direito: Formulário de Autenticação */}
-            <div className="w-full max-w-md">
+            {/* Formulário de Autenticação (Aparece no topo no celular, à direita no desktop) */}
+            <div className="w-full max-w-md order-1 lg:order-2">
               {isRegistering ? (
                 <RegisterForm onToggleForm={() => setIsRegistering(false)} />
               ) : (
