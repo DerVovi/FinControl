@@ -1,5 +1,14 @@
 import { PrismaClient } from '@prisma/client';
-import { env } from '../../config/env.js';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+const SUPABASE_FALLBACK_URL =
+  'postgresql://postgres.qrkzkhryotlrfmmednju:Lu7%25CSWRbnxa0t%23DcTed@aws-0-us-east-2.pooler.supabase.com:5432/postgres';
+
+if (!process.env.DATABASE_URL || !process.env.DATABASE_URL.startsWith('postgres')) {
+  process.env.DATABASE_URL = SUPABASE_FALLBACK_URL;
+}
 
 declare global {
   // eslint-disable-next-line no-var
@@ -11,12 +20,12 @@ export const prisma =
   new PrismaClient({
     datasources: {
       db: {
-        url: env.DATABASE_URL
+        url: process.env.DATABASE_URL
       }
     },
-    log: env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error']
+    log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error']
   });
 
-if (env.NODE_ENV !== 'production') {
+if (process.env.NODE_ENV !== 'production') {
   globalThis.prismaGlobal = prisma;
 }
