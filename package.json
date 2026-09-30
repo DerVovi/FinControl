@@ -1,0 +1,32 @@
+{
+  "name": "fincontrol-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "FinControl — Aplicativo de Gestão Financeira Pessoal",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "npm run dev --prefix backend",
+    "dev:all": "node scripts/dev.js",
+    "build": "npm run build --prefix backend && npm run build --prefix frontend",
+    "start": "node backend/dist/presentation/server.js",
+    "test": "npm run test --prefix backend",
+    "test:coverage": "npm run test:coverage --prefix backend",
+    "lint": "npm run lint --prefix backend && npm run lint --prefix frontend"
+  },
+  "keywords": [
+    "fintech",
+    "personal-finance",
+    "typescript",
+    "fastify",
+    "react",
+    "clean-architecture"
+  ],
+  "author": "FinControl Team",
+  "license": "MIT",
+  "dependencies": {
+    "qrcode-terminal": "^0.12.0"
+  }
+}

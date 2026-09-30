@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "FinControl",
+    "slug": "fincontrol",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#020617"
+    },
+    "android": {
+      "package": "com.victor.fincontrol",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#020617"
+      },
+      "permissions": [
+        "INTERNET"
+      ]
+    },
+    "extra": {
+      "eas": {
+        "projectId": "8f841fac-4c79-41b2-a13f-12b8682cab26"
+      }
+    },
+    "owner": "eodervas"
+  }
+}

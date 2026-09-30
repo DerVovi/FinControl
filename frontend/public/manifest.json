@@ -1,0 +1,19 @@
+{
+  "name": "FinControl — Gestão Financeira",
+  "short_name": "FinControl",
+  "description": "Sistema de gestão financeira pessoal claro, seguro e determinístico",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,324 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  fullName     String
+  baseCurrency String    @default("BRL")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  accounts              Account[]
+  categories            Category[]
+  transactions          Transaction[]
+  creditCards           CreditCard[]
+  invoices              Invoice[]
+  installmentPurchases  InstallmentPurchase[]
+  recurringTransactions RecurringTransaction[]
+  budgets               Budget[]
+  goals                 Goal[]
+  goalContributions     GoalContribution[]
+  refreshTokens         RefreshToken[]
+  passwordResetTokens   PasswordResetToken[]
+  webhookApiKey         WebhookApiKey?
+
+  @@map("users")
+}
+
+model Account {
+  id                  String   @id @default(uuid())
+  userId              String
+  name                String
+  type                String   // CHECKING, SAVINGS, DIGITAL, WALLET, INVESTMENT
+  initialBalanceCents BigInt   @default(0)
+  currentBalanceCents BigInt   @default(0)
+  color               String?
+  status              String   @default("ACTIVE") // ACTIVE, ARCHIVED
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  user                    User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions            Transaction[]          @relation("AccountTransactions")
+  destinationTransactions Transaction[]          @relation("DestinationAccountTransactions")
+  recurringTransactions   RecurringTransaction[]
+  goalContributions       GoalContribution[]
+
+  @@index([userId])
+  @@map("accounts")
+}
+
+model Category {
+  id        String   @id @default(uuid())
+  userId    String?
+  name      String
+  type      String   // INCOME, EXPENSE
+  icon      String?
+  color     String?
+  isSystem  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user                  User?                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions          Transaction[]
+  installmentPurchases  InstallmentPurchase[]
+  recurringTransactions RecurringTransaction[]
+  budgets               Budget[]
+
+  @@index([userId])
+  @@map("categories")
+}
+
+model CreditCard {
+  id             String   @id @default(uuid())
+  userId         String
+  name           String   // Ex: "Nubank Ultravioleta", "Itaú Click"
+  institution    String   // Ex: "Nubank", "Itaú"
+  limitCents     BigInt   @default(0)
+  closingDay     Int      // 1 a 31
+  dueDay         Int      // 1 a 31
+  lastFourDigits String?  // Ex: "1234"
+  color          String?  // Ex: "#820AD1"
+  status         String   @default("ACTIVE") // ACTIVE, BLOCKED, ARCHIVED
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user                 User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  invoices             Invoice[]
+  installmentPurchases InstallmentPurchase[]
+  transactions         Transaction[]
+
+  @@index([userId])
+  @@map("credit_cards")
+}
+
+model Invoice {
+  id          String   @id @default(uuid())
+  cardId      String
+  userId      String
+  month       Int      // 1 a 12
+  year        Int      // Ex: 2026
+  closingDate DateTime
+  dueDate     DateTime
+  totalCents  BigInt   @default(0)
+  paidCents   BigInt   @default(0)
+  status      String   @default("OPEN") // OPEN, CLOSED, PAID, OVERDUE, PARTIALLY_PAID
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  card         CreditCard    @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+  installments Installment[]
+
+  @@unique([cardId, month, year])
+  @@index([userId])
+  @@map("invoices")
+}
+
+model InstallmentPurchase {
+  id                String   @id @default(uuid())
+  userId            String
+  cardId            String
+  categoryId        String?
+  description       String
+  totalAmountCents  BigInt
+  totalInstallments Int
+  purchaseDate      DateTime
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  card         CreditCard    @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  category     Category?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  installments Installment[]
+
+  @@index([userId])
+  @@index([cardId])
+  @@map("installment_purchases")
+}
+
+model Installment {
+  id                String   @id @default(uuid())
+  purchaseId        String
+  invoiceId         String
+  installmentNumber Int      // Ex: 1 para 1/12
+  totalInstallments Int      // Ex: 12
+  amountCents       BigInt
+  dueDate           DateTime
+  status            String   @default("PENDING") // PENDING, BILLED, PAID
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  purchase InstallmentPurchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  invoice  Invoice             @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([purchaseId])
+  @@index([invoiceId])
+  @@map("installments")
+}
+
+model Transaction {
+  id                     String    @id @default(uuid())
+  userId                 String
+  accountId              String?   // Opcional para compras no cartão
+  destinationAccountId   String?
+  categoryId             String?
+  cardId                 String?
+  invoiceId              String?
+  type                   String    // INCOME, EXPENSE, TRANSFER, INVOICE_PAYMENT
+  amountCents            BigInt
+  date                   DateTime
+  description            String
+  status                 String    @default("CONFIRMED") // CONFIRMED, PENDING
+  isRecurring            Boolean   @default(false)
+  recurringTransactionId String?
+  notes                  String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  user                 User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account              Account?              @relation("AccountTransactions", fields: [accountId], references: [id], onDelete: Cascade)
+  destinationAccount   Account?              @relation("DestinationAccountTransactions", fields: [destinationAccountId], references: [id], onDelete: SetNull)
+  category             Category?             @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  card                 CreditCard?           @relation(fields: [cardId], references: [id], onDelete: SetNull)
+  invoice              Invoice?              @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  recurringTransaction RecurringTransaction? @relation(fields: [recurringTransactionId], references: [id], onDelete: SetNull)
+
+  @@index([userId, date])
+  @@index([accountId])
+  @@index([cardId])
+  @@index([invoiceId])
+  @@map("transactions")
+}
+
+model RecurringTransaction {
+  id          String    @id @default(uuid())
+  userId      String
+  accountId   String
+  categoryId  String?
+  description String
+  type        String    // INCOME, EXPENSE
+  amountCents BigInt
+  frequency   String    // DAILY, WEEKLY, MONTHLY, YEARLY
+  dayOfMonth  Int?      // 1 a 31 (para mensal)
+  startDate   DateTime
+  endDate     DateTime?
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account      Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  category     Category?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  transactions Transaction[]
+
+  @@index([userId])
+  @@map("recurring_transactions")
+}
+
+model Budget {
+  id                 String   @id @default(uuid())
+  userId             String
+  categoryId         String
+  month              Int      // 1 a 12
+  year               Int      // Ex: 2026
+  amountCents        BigInt
+  alertThresholdPct  Int      @default(80) // 80% alerta, 100% limite
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, categoryId, month, year])
+  @@index([userId])
+  @@map("budgets")
+}
+
+model Goal {
+  id                 String    @id @default(uuid())
+  userId             String
+  name               String    // Ex: "Comprar carro", "Reserva de Emergência"
+  targetAmountCents  BigInt
+  currentAmountCents BigInt    @default(0)
+  targetDate         DateTime?
+  color              String?   // Ex: "#10B981"
+  status             String    @default("IN_PROGRESS") // IN_PROGRESS, COMPLETED, CANCELLED
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contributions GoalContribution[]
+
+  @@index([userId])
+  @@map("goals")
+}
+
+model GoalContribution {
+  id          String   @id @default(uuid())
+  goalId      String
+  userId      String
+  accountId   String?  // Conta bancária de onde o aporte saiu
+  amountCents BigInt
+  date        DateTime @default(now())
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  goal    Goal     @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  @@index([goalId])
+  @@index([userId])
+  @@map("goal_contributions")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+model WebhookApiKey {
+  id         String    @id @default(uuid())
+  userId     String    @unique
+  keyHash    String    @unique
+  maskedKey  String
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("webhook_api_keys")
+}
+
