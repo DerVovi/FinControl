@@ -163,6 +163,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#020617',
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) : 0,
   },
   headerBar: {
     height: 48,

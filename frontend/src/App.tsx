@@ -62,25 +62,31 @@ export const App: React.FC = () => {
         {isAuthenticated ? (
           renderActiveTabContent()
         ) : (
-          <div className="flex-1 max-w-6xl mx-auto w-full flex flex-col lg:flex-row items-center justify-center gap-8 lg:gap-12 py-4 lg:py-8">
-            {/* Proposta de Valor / Frases explicativas (Abaixo do login no celular, à esquerda no desktop) */}
-            <div className="max-w-xl text-center lg:text-left space-y-6 order-2 lg:order-1 pt-4 lg:pt-0">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold">
-                <Wallet className="w-3.5 h-3.5" />
-                <span>Gestão Financeira Sem Complicações</span>
-              </div>
-
+          <div className="flex-1 max-w-6xl mx-auto w-full flex flex-col lg:flex-row items-center justify-center gap-8 lg:gap-14 py-6 sm:py-8 lg:py-12">
+            {/* Bloco de Apresentação com espaçamento seguro para o menu do celular */}
+            <div className="max-w-xl text-center lg:text-left space-y-5 pt-3 sm:pt-6 lg:pt-0">
+              {/* 1. Seu dinheiro em cima */}
               <h1 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight leading-tight">
                 Seu dinheiro sob controle, <span className="text-emerald-400">de verdade</span>.
               </h1>
 
-              <p className="text-sm sm:text-base text-slate-400 leading-relaxed">
+              {/* 2. Texto do Descubra em cima */}
+              <p className="text-sm sm:text-base text-slate-400 leading-relaxed max-w-lg mx-auto lg:mx-0">
                 Descubra com precisão matemática quanto dinheiro você tem, quanto pode gastar e para onde cada centavo está indo. Adeus às planilhas confusas.
               </p>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+              {/* 3. Aí embaixo: Gestão Financeira */}
+              <div className="flex justify-center lg:justify-start pt-1">
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold">
+                  <Wallet className="w-3.5 h-3.5" />
+                  <span>Gestão Financeira Sem Complicações</span>
+                </div>
+              </div>
+
+              {/* 4. Aí embaixo: 100% Seguro e Cálculo Preciso */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 pt-1 max-w-md mx-auto lg:mx-0">
                 <div className="p-3 bg-slate-900/50 border border-slate-800 rounded-xl flex items-center gap-3">
-                  <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-lg">
+                  <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-lg shrink-0">
                     <Shield className="w-4 h-4" />
                   </div>
                   <div className="text-left">
@@ -90,7 +96,7 @@ export const App: React.FC = () => {
                 </div>
 
                 <div className="p-3 bg-slate-900/50 border border-slate-800 rounded-xl flex items-center gap-3">
-                  <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-lg">
+                  <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-lg shrink-0">
                     <Zap className="w-4 h-4" />
                   </div>
                   <div className="text-left">
@@ -101,8 +107,8 @@ export const App: React.FC = () => {
               </div>
             </div>
 
-            {/* Formulário de Autenticação (Aparece no topo no celular, à direita no desktop) */}
-            <div className="w-full max-w-md order-1 lg:order-2">
+            {/* Formulário de Autenticação */}
+            <div className="w-full max-w-md pt-2 sm:pt-4 lg:pt-0">
               {isRegistering ? (
                 <RegisterForm onToggleForm={() => setIsRegistering(false)} />
               ) : (
