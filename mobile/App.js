@@ -52,7 +52,7 @@ export default function App() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#020617" />
+      <StatusBar barStyle="light-content" backgroundColor="#020617" translucent={false} />
 
       {/* Barra superior de controle rápido */}
       <View style={styles.headerBar}>
@@ -163,17 +163,18 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#020617',
-    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) : 0,
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 28) : 0,
   },
   headerBar: {
-    height: 48,
-    backgroundColor: '#020617',
+    minHeight: 52,
+    backgroundColor: '#090d16',
     borderBottomWidth: 1,
     borderBottomColor: '#1e293b',
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'between',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
+    paddingVertical: 10,
   },
   headerBrand: {
     flexDirection: 'row',
@@ -191,13 +192,14 @@ const styles = StyleSheet.create({
   },
   headerBadge: {
     fontSize: 10,
-    backgroundColor: '#0f172a',
-    color: '#94a3b8',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    backgroundColor: '#064e3b',
+    color: '#6ee7b7',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#059669',
+    fontWeight: 'bold',
   },
   configBtn: {
     paddingHorizontal: 10,

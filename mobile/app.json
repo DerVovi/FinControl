@@ -21,6 +21,11 @@
         "INTERNET"
       ]
     },
+    "androidStatusBar": {
+      "barStyle": "light-content",
+      "backgroundColor": "#020617",
+      "translucent": false
+    },
     "extra": {
       "eas": {
         "projectId": "8f841fac-4c79-41b2-a13f-12b8682cab26"
