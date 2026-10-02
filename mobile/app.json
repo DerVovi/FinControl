@@ -2,11 +2,10 @@
   "expo": {
     "name": "FinControl",
     "slug": "fincontrol",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": false,
     "splash": {
       "image": "./assets/icon.png",
       "resizeMode": "contain",
@@ -14,16 +13,13 @@
     },
     "android": {
       "package": "com.victor.fincontrol",
-      "versionCode": 4,
+      "versionCode": 5,
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#020617"
       },
       "permissions": [
-        "INTERNET",
-        "RECEIVE_BOOT_COMPLETED",
-        "WAKE_LOCK",
-        "FOREGROUND_SERVICE"
+        "INTERNET"
       ]
     },
     "androidStatusBar": {
@@ -46,8 +42,7 @@
     "plugins": [
       "expo-font",
       "expo-asset",
-      "expo-updates",
-      "./plugins/withAndroidNotificationListener"
+      "expo-updates"
     ],
     "extra": {
       "eas": {

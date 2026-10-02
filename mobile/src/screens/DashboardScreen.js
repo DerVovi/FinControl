@@ -7,7 +7,6 @@ import {
   RefreshControl,
   TouchableOpacity,
   ActivityIndicator,
-  AppState,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
@@ -17,7 +16,6 @@ import { api, formatCurrency, formatDate } from '../services/api';
 import { NewTransactionModal } from '../components/NewTransactionModal';
 import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
 import { AccountDetailsModal } from '../components/AccountDetailsModal';
-import { notificationListenerService } from '../services/notificationListenerService';
 
 export function DashboardScreen({ user, onNavigateToTransactions }) {
   const [loading, setLoading] = useState(true);
@@ -30,15 +28,6 @@ export function DashboardScreen({ user, onNavigateToTransactions }) {
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedTx, setSelectedTx] = useState(null);
   const [selectedAccount, setSelectedAccount] = useState(null);
-  const [permissionStatus, setPermissionStatus] = useState('unknown');
-  const [bannerDismissed, setBannerDismissed] = useState(false);
-
-  const checkNotificationPermission = useCallback(async () => {
-    try {
-      const status = await notificationListenerService.getPermissionStatus();
-      setPermissionStatus(status);
-    } catch {}
-  }, []);
 
   const loadData = useCallback(async () => {
     if (!user) return;
@@ -63,22 +52,11 @@ export function DashboardScreen({ user, onNavigateToTransactions }) {
 
   useEffect(() => {
     loadData();
-    checkNotificationPermission();
-
-    const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') {
-        loadData();
-        checkNotificationPermission();
-      }
-    });
-
-    return () => sub.remove();
-  }, [loadData, checkNotificationPermission]);
+  }, [loadData]);
 
   const onRefresh = () => {
     setRefreshing(true);
     loadData();
-    checkNotificationPermission();
   };
 
   // Cálculo de Saldo Total
@@ -169,35 +147,6 @@ export function DashboardScreen({ user, onNavigateToTransactions }) {
             </View>
           </View>
         </Card>
-
-        {/* BANNER DE NOTIFICAÇÃO NATIVA (SE NÃO ATIVADA) */}
-        {!bannerDismissed && permissionStatus !== 'authorized' && (
-          <TouchableOpacity
-            style={styles.notifBanner}
-            activeOpacity={0.85}
-            onPress={() => notificationListenerService.requestPermission()}
-          >
-            <View style={styles.notifBannerIcon}>
-              <Ionicons name="notifications" size={20} color={colors.warning} />
-            </View>
-            <View style={styles.notifBannerContent}>
-              <View style={styles.notifBannerTitleRow}>
-                <Text style={styles.notifBannerTitle}>Ativar Leitura Automática</Text>
-                <Badge title="NATIVO" variant="warning" />
-              </View>
-              <Text style={styles.notifBannerDesc}>
-                Toque aqui para permitir que o FinControl leia compras do Google Wallet e bancos direto no celular.
-              </Text>
-            </View>
-            <TouchableOpacity
-              style={styles.notifBannerClose}
-              onPress={() => setBannerDismissed(true)}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              <Ionicons name="close" size={16} color={colors.textMuted} />
-            </TouchableOpacity>
-          </TouchableOpacity>
-        )}
 
         {/* 2. CARROSSEL DE CONTAS BANCÁRIAS */}
         <View style={styles.sectionHeader}>
@@ -564,47 +513,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     textAlign: 'right',
-  },
-  notifBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(245, 158, 11, 0.08)',
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(245, 158, 11, 0.3)',
-    gap: 12,
-  },
-  notifBannerIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: 'rgba(245, 158, 11, 0.15)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  notifBannerContent: {
-    flex: 1,
-  },
-  notifBannerTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 2,
-  },
-  notifBannerTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: colors.text,
-  },
-  notifBannerDesc: {
-    fontSize: 11,
-    color: colors.textSecondary,
-    lineHeight: 15,
-  },
-  notifBannerClose: {
-    padding: 4,
   },
   fab: {
     position: 'absolute',
