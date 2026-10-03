@@ -14,8 +14,10 @@ import { Card } from '../components/Card';
 import { api, formatCurrency, formatDate } from '../services/api';
 import { NewTransactionModal } from '../components/NewTransactionModal';
 import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
+import { CategoryPieChart } from '../components/CategoryPieChart';
 
 export function TransactionsScreen({ user }) {
+  const [viewMode, setViewMode] = useState('LIST'); // 'LIST' | 'CHART'
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [transactions, setTransactions] = useState([]);
@@ -77,48 +79,115 @@ export function TransactionsScreen({ user }) {
 
   return (
     <View style={styles.container}>
-      {/* BARRA DE PESQUISA & FILTROS */}
-      <View style={styles.filtersContainer}>
-        <View style={styles.searchBar}>
-          <Ionicons name="search" size={18} color={colors.textMuted} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Buscar por descrição..."
-            placeholderTextColor={colors.textMuted}
-            value={search}
-            onChangeText={setSearch}
+      {/* SELETOR DE MODO: LISTA DE EXTRATO VS GRÁFICO DE PIZZA */}
+      <View style={styles.viewModeContainer}>
+        <TouchableOpacity
+          style={[styles.viewModeTab, viewMode === 'LIST' && styles.viewModeTabActive]}
+          onPress={() => setViewMode('LIST')}
+          activeOpacity={0.8}
+        >
+          <Ionicons
+            name="list"
+            size={16}
+            color={viewMode === 'LIST' ? colors.primary : colors.textMuted}
           />
-          {search ? (
-            <TouchableOpacity onPress={() => setSearch('')}>
-              <Ionicons name="close-circle" size={16} color={colors.textMuted} />
-            </TouchableOpacity>
-          ) : null}
-        </View>
+          <Text
+            style={[
+              styles.viewModeTabText,
+              viewMode === 'LIST' && styles.viewModeTabTextActive,
+            ]}
+          >
+            Extrato
+          </Text>
+        </TouchableOpacity>
 
-        {/* CHIPS DE FILTRO */}
-        <View style={styles.chipsRow}>
-          {[
-            { id: 'ALL', label: 'Todas' },
-            { id: 'EXPENSE', label: 'Despesas' },
-            { id: 'INCOME', label: 'Receitas' },
-            { id: 'RECURRING', label: 'Fixas/Parcelas' },
-          ].map((item) => {
-            const active = filterType === item.id;
-            return (
-              <TouchableOpacity
-                key={item.id}
-                style={[styles.chip, active && styles.chipActive]}
-                onPress={() => setFilterType(item.id)}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                  {item.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+        <TouchableOpacity
+          style={[styles.viewModeTab, viewMode === 'CHART' && styles.viewModeTabActive]}
+          onPress={() => setViewMode('CHART')}
+          activeOpacity={0.8}
+        >
+          <Ionicons
+            name="pie-chart"
+            size={16}
+            color={viewMode === 'CHART' ? colors.primary : colors.textMuted}
+          />
+          <Text
+            style={[
+              styles.viewModeTabText,
+              viewMode === 'CHART' && styles.viewModeTabTextActive,
+            ]}
+          >
+            Gráfico de Pizza
+          </Text>
+        </TouchableOpacity>
       </View>
+
+      {viewMode === 'CHART' ? (
+        <ScrollView
+          contentContainerStyle={{ paddingBottom: 90 }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => {
+                setRefreshing(true);
+                loadData();
+              }}
+              tintColor={colors.primary}
+              colors={[colors.primary]}
+            />
+          }
+          showsVerticalScrollIndicator={false}
+        >
+          <CategoryPieChart
+            transactions={transactions}
+            categories={categories}
+            hideValues={false}
+          />
+        </ScrollView>
+      ) : (
+        <>
+          {/* BARRA DE PESQUISA & FILTROS */}
+          <View style={styles.filtersContainer}>
+            <View style={styles.searchBar}>
+              <Ionicons name="search" size={18} color={colors.textMuted} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Buscar por descrição..."
+                placeholderTextColor={colors.textMuted}
+                value={search}
+                onChangeText={setSearch}
+              />
+              {search ? (
+                <TouchableOpacity onPress={() => setSearch('')}>
+                  <Ionicons name="close-circle" size={16} color={colors.textMuted} />
+                </TouchableOpacity>
+              ) : null}
+            </View>
+
+            {/* CHIPS DE FILTRO */}
+            <View style={styles.chipsRow}>
+              {[
+                { id: 'ALL', label: 'Todas' },
+                { id: 'EXPENSE', label: 'Despesas' },
+                { id: 'INCOME', label: 'Receitas' },
+                { id: 'RECURRING', label: 'Fixas/Parcelas' },
+              ].map((item) => {
+                const active = filterType === item.id;
+                return (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={[styles.chip, active && styles.chipActive]}
+                    onPress={() => setFilterType(item.id)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                      {item.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
 
       {/* LISTA DE TRANSAÇÕES */}
       <FlatList
@@ -216,6 +285,8 @@ export function TransactionsScreen({ user }) {
           );
         }}
       />
+        </>
+      )}
 
       {/* BOTÃO FLUTUANTE */}
       <TouchableOpacity
@@ -258,6 +329,45 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  viewModeContainer: {
+    flexDirection: 'row',
+    backgroundColor: colors.surfaceElevated,
+    marginHorizontal: 20,
+    marginTop: 14,
+    marginBottom: 4,
+    borderRadius: 12,
+    padding: 4,
+    borderWidth: 1,
+    borderColor: colors.borderHighlight,
+  },
+  viewModeTab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 9,
+    borderRadius: 9,
+  },
+  viewModeTabActive: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.borderHighlight,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  viewModeTabText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.textMuted,
+  },
+  viewModeTabTextActive: {
+    color: colors.primary,
+    fontWeight: '900',
   },
   filtersContainer: {
     paddingHorizontal: 20,

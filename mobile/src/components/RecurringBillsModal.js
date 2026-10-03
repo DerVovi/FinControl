@@ -349,34 +349,6 @@ export function RecurringBillsModal({
                   </View>
                 </View>
 
-                {/* Pílulas rápidas de seleção de dia */}
-                <Text style={[styles.inputLabel, { marginTop: -4 }]}>Dia do mês rápido:</Text>
-                <View style={styles.quickDaysRow}>
-                  {['1', '5', '10', '15', '20', '25', '28'].map((d) => {
-                    const isSelected = String(dayOfMonth) === d;
-                    return (
-                      <TouchableOpacity
-                        key={d}
-                        style={[
-                          styles.quickDayChip,
-                          isSelected && styles.quickDayChipActive,
-                        ]}
-                        onPress={() => setDayOfMonth(d)}
-                        activeOpacity={0.7}
-                      >
-                        <Text
-                          style={[
-                            styles.quickDayText,
-                            isSelected && styles.quickDayTextActive,
-                          ]}
-                        >
-                          Dia {d}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-
                 {/* CONTA BANCÁRIA VINCULADA */}
                 {accounts.length > 0 && (
                   <View style={styles.fieldSection}>

@@ -1,19 +1,26 @@
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
 import { Card } from './Card';
 import { formatCurrency } from '../services/api';
 
-const DEFAULT_CATEGORY_COLORS = [
-  '#EF4444', // Red
-  '#F59E0B', // Amber
-  '#3B82F6', // Blue
-  '#10B981', // Emerald
-  '#EC4899', // Pink
-  '#8B5CF6', // Purple
-  '#06B6D4', // Cyan
-  '#6366F1', // Indigo
+let WebView = null;
+try {
+  WebView = require('react-native-webview').WebView;
+} catch (e) {
+  WebView = null;
+}
+
+const CATEGORY_COLORS = [
+  '#EF4444', // Red (Alimentação)
+  '#F59E0B', // Amber (Transporte)
+  '#3B82F6', // Blue (Moradia)
+  '#10B981', // Emerald (Saúde)
+  '#EC4899', // Pink (Lazer)
+  '#8B5CF6', // Purple (Educação)
+  '#06B6D4', // Cyan (Serviços)
+  '#6366F1', // Indigo (Outros)
   '#14B8A6', // Teal
   '#F97316', // Orange
 ];
@@ -33,16 +40,22 @@ const CATEGORY_ICONS = {
   'Compras': 'cart',
 };
 
-export function CategoryExpenseChart({
+export function CategoryPieChart({
   transactions = [],
   categories = [],
   hideValues = false,
 }) {
-  // Filtra transações do mês corrente do tipo EXPENSE
   const now = new Date();
   const currentMonth = now.getMonth();
   const currentYear = now.getFullYear();
 
+  const monthNames = [
+    'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+  ];
+  const currentMonthName = monthNames[currentMonth];
+
+  // Filtra transações do mês corrente do tipo EXPENSE
   const monthExpenses = transactions.filter((t) => {
     if (t.type !== 'EXPENSE') return false;
     const d = new Date(t.date);
@@ -74,15 +87,13 @@ export function CategoryExpenseChart({
     categoryMap[catId].amountCents += amount;
   });
 
-  // Converte em array e ordena do maior para o menor gasto
   const categoryList = Object.values(categoryMap)
     .filter((c) => c.amountCents > 0)
     .sort((a, b) => b.amountCents - a.amountCents);
 
-  // Atribui cores distintas para cada categoria
+  // Atribui cores e percentuais
   const categoriesWithColors = categoryList.map((cat, idx) => {
-    const assignedColor =
-      DEFAULT_CATEGORY_COLORS[idx % DEFAULT_CATEGORY_COLORS.length];
+    const assignedColor = CATEGORY_COLORS[idx % CATEGORY_COLORS.length];
     const percentage =
       totalExpenseCents > 0
         ? Math.round((cat.amountCents / totalExpenseCents) * 100)
@@ -95,17 +106,65 @@ export function CategoryExpenseChart({
     };
   });
 
+  // Gera HTML SVG para o Gráfico de Pizza / Donut
+  const generatePieHtml = () => {
+    let accumulatedPercent = 0;
+    const circles = categoriesWithColors
+      .map((cat) => {
+        const percent = cat.percentage;
+        const strokeDash = `${percent} ${100 - percent}`;
+        const strokeOffset = 100 - accumulatedPercent + 25; // 25 gira para começar no topo (12h)
+        accumulatedPercent += percent;
+        return `<circle cx="21" cy="21" r="15.915" fill="none" stroke="${cat.color}" stroke-width="7" stroke-dasharray="${strokeDash}" stroke-dashoffset="${strokeOffset}" />`;
+      })
+      .join('');
+
+    return `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+          <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body {
+              background-color: transparent;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              height: 100vh;
+              overflow: hidden;
+              font-family: system-ui, -apple-system, sans-serif;
+            }
+            svg {
+              width: 180px;
+              height: 180px;
+            }
+          </style>
+        </head>
+        <body>
+          <svg viewBox="0 0 42 42">
+            <circle cx="21" cy="21" r="15.915" fill="#0b0f19" stroke="#1e293b" stroke-width="7" />
+            ${circles}
+            <circle cx="21" cy="21" r="12" fill="#0b0f19" />
+            <text x="21" y="19" font-size="3.2" font-weight="bold" fill="#94a3b8" text-anchor="middle">GASTOS</text>
+            <text x="21" y="24" font-size="4.2" font-weight="900" fill="#f8fafc" text-anchor="middle">100%</text>
+          </svg>
+        </body>
+      </html>
+    `;
+  };
+
   return (
     <Card style={styles.container} elevated>
-      {/* HEADER DA SEÇÃO */}
+      {/* HEADER DO GRÁFICO */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <View style={styles.headerIconBox}>
             <Ionicons name="pie-chart" size={18} color={colors.primary} />
           </View>
           <View>
-            <Text style={styles.title}>Onde o Dinheiro Está Indo</Text>
-            <Text style={styles.subtitle}>Distribuição de gastos por categoria</Text>
+            <Text style={styles.title}>Gráfico de Gastos por Categoria</Text>
+            <Text style={styles.subtitle}>{currentMonthName} • Distribuição de despesas</Text>
           </View>
         </View>
 
@@ -118,17 +177,55 @@ export function CategoryExpenseChart({
 
       {categoriesWithColors.length === 0 ? (
         <View style={styles.emptyContainer}>
-          <Ionicons name="stats-chart-outline" size={32} color={colors.textMuted} />
+          <Ionicons name="stats-chart-outline" size={36} color={colors.textMuted} />
           <Text style={styles.emptyText}>
             Nenhuma despesa registrada neste mês ainda.
           </Text>
           <Text style={styles.emptySub}>
-            Conforme você registrar gastos, o gráfico de distribuição aparecerá aqui.
+            Lançamentos feitos neste mês aparecerão aqui no gráfico de pizza.
           </Text>
         </View>
       ) : (
         <>
-          {/* BARRA SEGMENTADA MULTI-CORES (GRÁFICO HORIZONTAL) */}
+          {/* GRÁFICO DE PIZZA / DONUT SVG */}
+          {WebView ? (
+            <View style={styles.pieContainer}>
+              <WebView
+                originWhitelist={['*']}
+                source={{ html: generatePieHtml() }}
+                style={styles.webView}
+                scrollEnabled={false}
+                overScrollMode="never"
+                javaScriptEnabled={true}
+              />
+            </View>
+          ) : (
+            /* Fallback de Barra Segmentada Multi-Cores */
+            <View style={styles.segmentedBar}>
+              {categoriesWithColors.map((cat, index) => {
+                const isFirst = index === 0;
+                const isLast = index === categoriesWithColors.length - 1;
+                return (
+                  <View
+                    key={cat.id}
+                    style={[
+                      styles.segment,
+                      {
+                        backgroundColor: cat.color,
+                        flex: cat.amountCents,
+                        borderTopLeftRadius: isFirst ? 8 : 0,
+                        borderBottomLeftRadius: isFirst ? 8 : 0,
+                        borderTopRightRadius: isLast ? 8 : 0,
+                        borderBottomRightRadius: isLast ? 8 : 0,
+                      },
+                    ]}
+                  />
+                );
+              })}
+            </View>
+          )}
+
+          {/* BARRA HORIZONTAL COMPLEMENTAR */}
           <View style={styles.segmentedBar}>
             {categoriesWithColors.map((cat, index) => {
               const isFirst = index === 0;
@@ -141,10 +238,10 @@ export function CategoryExpenseChart({
                     {
                       backgroundColor: cat.color,
                       flex: cat.amountCents,
-                      borderTopLeftRadius: isFirst ? 8 : 0,
-                      borderBottomLeftRadius: isFirst ? 8 : 0,
-                      borderTopRightRadius: isLast ? 8 : 0,
-                      borderBottomRightRadius: isLast ? 8 : 0,
+                      borderTopLeftRadius: isFirst ? 6 : 0,
+                      borderBottomLeftRadius: isFirst ? 6 : 0,
+                      borderTopRightRadius: isLast ? 6 : 0,
+                      borderBottomRightRadius: isLast ? 6 : 0,
                     },
                   ]}
                 />
@@ -152,7 +249,7 @@ export function CategoryExpenseChart({
             })}
           </View>
 
-          {/* LISTA DE CATEGORIAS COM CORES E PERCENTUAIS */}
+          {/* LISTA DETALHADA DAS FATIAS DA PIZZA */}
           <View style={styles.categoryList}>
             {categoriesWithColors.map((cat) => (
               <View key={cat.id} style={styles.categoryRow}>
@@ -164,7 +261,7 @@ export function CategoryExpenseChart({
                       color="#FFFFFF"
                     />
                   </View>
-                  <View>
+                  <View style={styles.catNameCol}>
                     <Text style={styles.catName} numberOfLines={1}>
                       {cat.name}
                     </Text>
@@ -203,6 +300,8 @@ export function CategoryExpenseChart({
 
 const styles = StyleSheet.create({
   container: {
+    margin: 20,
+    marginTop: 12,
     marginBottom: 24,
     padding: 18,
     backgroundColor: colors.surface,
@@ -230,7 +329,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   title: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '800',
     color: colors.text,
   },
@@ -250,13 +349,24 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: colors.expense,
   },
+  pieContainer: {
+    height: 190,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  webView: {
+    width: 190,
+    height: 190,
+    backgroundColor: 'transparent',
+  },
   segmentedBar: {
     flexDirection: 'row',
-    height: 14,
-    borderRadius: 8,
+    height: 10,
+    borderRadius: 5,
     overflow: 'hidden',
     backgroundColor: colors.surfaceElevated,
-    marginBottom: 16,
+    marginBottom: 18,
     borderWidth: 1,
     borderColor: colors.borderHighlight,
   },
@@ -285,6 +395,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  catNameCol: {
+    flex: 1,
+  },
   catName: {
     fontSize: 13,
     fontWeight: '700',
@@ -292,7 +405,8 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   percentageTrack: {
-    width: 110,
+    width: '100%',
+    maxWidth: 120,
     height: 4,
     borderRadius: 2,
     backgroundColor: colors.surfaceElevated,
@@ -323,18 +437,18 @@ const styles = StyleSheet.create({
   emptyContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 24,
-    gap: 6,
+    paddingVertical: 28,
+    gap: 8,
   },
   emptyText: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '700',
     color: colors.textMuted,
   },
   emptySub: {
-    fontSize: 11,
+    fontSize: 12,
     color: colors.textMuted,
     textAlign: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
   },
 });

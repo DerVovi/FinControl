@@ -17,7 +17,6 @@ import { NewTransactionModal } from '../components/NewTransactionModal';
 import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
 import { AccountDetailsModal } from '../components/AccountDetailsModal';
 import { RecurringBillsModal } from '../components/RecurringBillsModal';
-import { CategoryExpenseChart } from '../components/CategoryExpenseChart';
 import { MonthlyForecastSummary } from '../components/MonthlyForecastSummary';
 
 export function DashboardScreen({ user, onNavigateToTransactions }) {
@@ -277,14 +276,7 @@ export function DashboardScreen({ user, onNavigateToTransactions }) {
           </ScrollView>
         )}
 
-        {/* 5. ONDE O DINHEIRO ESTÁ INDO (GRÁFICO POR CATEGORIA COM CORES) */}
-        <CategoryExpenseChart
-          transactions={transactions}
-          categories={categories}
-          hideValues={hideValues}
-        />
-
-        {/* 6. TRANSAÇÕES RECENTES */}
+        {/* 5. TRANSAÇÕES RECENTES */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Últimas Transações</Text>
           {onNavigateToTransactions && (

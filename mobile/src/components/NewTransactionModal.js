@@ -623,14 +623,14 @@ export function NewTransactionModal({
                     </Text>
                   </View>
                   <View style={styles.subConfigInputRow}>
-                    <Text style={styles.subConfigLabel}>Dia de vencimento:</Text>
+                    <Text style={styles.subConfigLabel}>Dia de vencimento (1 a 31):</Text>
                     <TextInput
                       style={styles.dayInput}
                       keyboardType="numeric"
                       maxLength={2}
                       value={dayOfMonth}
                       onChangeText={setDayOfMonth}
-                      placeholder="Dia"
+                      placeholder="Ex: 5"
                       placeholderTextColor={colors.textMuted}
                       onFocus={() => {
                         setTimeout(() => {
@@ -638,33 +638,6 @@ export function NewTransactionModal({
                         }, 120);
                       }}
                     />
-                  </View>
-
-                  {/* Pílulas rápidas de seleção de dia */}
-                  <View style={styles.quickDaysRow}>
-                    {['1', '5', '10', '15', '20', '25', '28'].map((d) => {
-                      const isSelected = String(dayOfMonth) === d;
-                      return (
-                        <TouchableOpacity
-                          key={d}
-                          style={[
-                            styles.quickDayChip,
-                            isSelected && styles.quickDayChipActive,
-                          ]}
-                          onPress={() => setDayOfMonth(d)}
-                          activeOpacity={0.7}
-                        >
-                          <Text
-                            style={[
-                              styles.quickDayText,
-                              isSelected && styles.quickDayTextActive,
-                            ]}
-                          >
-                            Dia {d}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
                   </View>
                 </View>
               )}
