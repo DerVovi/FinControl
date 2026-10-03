@@ -17,6 +17,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
 import { Button } from './Button';
 import { api, formatCurrency } from '../services/api';
+import {
+  handleCurrencyInputChange,
+  formatCentsToDisplay,
+  parseFormattedToCents,
+} from '../utils/currencyMask';
 
 const CATEGORY_ICONS = {
   'Alimentação': 'restaurant',
@@ -130,10 +135,7 @@ export function NewTransactionModal({
   }, [localCards]);
 
   const parseAmountToCents = (str) => {
-    if (!str) return 0;
-    const clean = str.replace(/[^\d.,]/g, '').replace(',', '.');
-    const num = parseFloat(clean);
-    return isNaN(num) ? 0 : Math.round(num * 100);
+    return parseFormattedToCents(str);
   };
 
   // Criação de nova opção de recebimento / categoria
@@ -350,9 +352,12 @@ export function NewTransactionModal({
                 ]}
                 placeholder="0,00"
                 placeholderTextColor={colors.textMuted}
-                value={amountStr}
-                onChangeText={setAmountStr}
-                keyboardType="decimal-pad"
+                value={amountStr || '0,00'}
+                onChangeText={(text) => {
+                  const { formatted } = handleCurrencyInputChange(text);
+                  setAmountStr(formatted);
+                }}
+                keyboardType="numeric"
                 autoFocus={true}
               />
             </View>
@@ -549,7 +554,12 @@ export function NewTransactionModal({
                   onPress={() => {
                     const next = !isRecurring;
                     setIsRecurring(next);
-                    if (next) setIsInstallment(false);
+                    if (next) {
+                      setIsInstallment(false);
+                      setTimeout(() => {
+                        scrollViewRef.current?.scrollTo({ y: 520, animated: true });
+                      }, 120);
+                    }
                   }}
                   activeOpacity={0.7}
                 >
@@ -577,7 +587,12 @@ export function NewTransactionModal({
                     onPress={() => {
                       const next = !isInstallment;
                       setIsInstallment(next);
-                      if (next) setIsRecurring(false);
+                      if (next) {
+                        setIsRecurring(false);
+                        setTimeout(() => {
+                          scrollViewRef.current?.scrollTo({ y: 520, animated: true });
+                        }, 120);
+                      }
                     }}
                     activeOpacity={0.7}
                   >
@@ -617,7 +632,39 @@ export function NewTransactionModal({
                       onChangeText={setDayOfMonth}
                       placeholder="Dia"
                       placeholderTextColor={colors.textMuted}
+                      onFocus={() => {
+                        setTimeout(() => {
+                          scrollViewRef.current?.scrollTo({ y: 580, animated: true });
+                        }, 120);
+                      }}
                     />
+                  </View>
+
+                  {/* Pílulas rápidas de seleção de dia */}
+                  <View style={styles.quickDaysRow}>
+                    {['1', '5', '10', '15', '20', '25', '28'].map((d) => {
+                      const isSelected = String(dayOfMonth) === d;
+                      return (
+                        <TouchableOpacity
+                          key={d}
+                          style={[
+                            styles.quickDayChip,
+                            isSelected && styles.quickDayChipActive,
+                          ]}
+                          onPress={() => setDayOfMonth(d)}
+                          activeOpacity={0.7}
+                        >
+                          <Text
+                            style={[
+                              styles.quickDayText,
+                              isSelected && styles.quickDayTextActive,
+                            ]}
+                          >
+                            Dia {d}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
                   </View>
                 </View>
               )}
@@ -1331,6 +1378,33 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     textAlign: 'center',
+  },
+  quickDaysRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 10,
+  },
+  quickDayChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  quickDayChipActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryGhost,
+  },
+  quickDayText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.textSecondary,
+  },
+  quickDayTextActive: {
+    color: colors.primary,
+    fontWeight: '900',
   },
   installmentsScroll: {
     flexDirection: 'row',

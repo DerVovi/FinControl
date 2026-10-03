@@ -288,6 +288,68 @@ export const api = {
     }
   },
 
+  // Edição de Transação com reajuste automático de saldo
+  async updateTransaction({ transactionId, description, amountCents, categoryId, notes }) {
+    try {
+      if (!transactionId) throw new Error('ID da transação é obrigatório.');
+
+      // Busca transação atual
+      const { data: currentTx, error: fetchErr } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('id', transactionId)
+        .single();
+
+      if (fetchErr || !currentTx) throw new Error('Transação não encontrada.');
+
+      const updateData = { updatedAt: new Date().toISOString() };
+      if (description) updateData.description = description.trim();
+      if (notes !== undefined) updateData.notes = notes ? notes.trim() : null;
+      if (categoryId) updateData.categoryId = categoryId;
+
+      const oldCents = Number(currentTx.amountCents || 0);
+      const newCents = amountCents !== undefined && amountCents !== null ? Math.round(Number(amountCents)) : oldCents;
+      if (amountCents !== undefined) updateData.amountCents = newCents;
+
+      // Se o valor mudou e a transação estiver CONFIRMED e tiver conta vinculada, reajusta saldo
+      if (oldCents !== newCents && currentTx.status === 'CONFIRMED' && currentTx.accountId) {
+        const { data: acc } = await supabase
+          .from('accounts')
+          .select('currentBalanceCents')
+          .eq('id', currentTx.accountId)
+          .single();
+
+        if (acc) {
+          const currentAccBalance = Number(acc.currentBalanceCents || 0);
+          const diff = newCents - oldCents;
+          const balanceAdjustment = currentTx.type === 'INCOME' ? diff : -diff;
+          const updatedBalance = currentAccBalance + balanceAdjustment;
+
+          await supabase
+            .from('accounts')
+            .update({
+              currentBalanceCents: updatedBalance,
+              updatedAt: new Date().toISOString(),
+            })
+            .eq('id', currentTx.accountId);
+        }
+      }
+
+      const { data: updatedTx, error: updateErr } = await supabase
+        .from('transactions')
+        .update(updateData)
+        .eq('id', transactionId)
+        .select()
+        .single();
+
+      if (updateErr) throw updateErr;
+      return { success: true, transaction: updatedTx };
+    } catch (err) {
+      console.error('Erro ao atualizar transação:', err);
+      return { success: false, error: err.message || 'Falha ao atualizar transação.' };
+    }
+  },
+
   // Criação rápida de Conta
   async createAccount({ userId, name, type = 'CHECKING', color = '#10B981', initialBalanceCents = 0 }) {
     try {
@@ -309,6 +371,58 @@ export const api = {
       return { success: true, account: data };
     } catch (err) {
       return { success: false, error: err.message || 'Falha ao criar conta.' };
+    }
+  },
+
+  // Atualização de Conta Bancária / Carteira
+  async updateAccount({ accountId, name, type, color, currentBalanceCents }) {
+    try {
+      if (!accountId) throw new Error('ID da conta é obrigatório.');
+      const updateData = { updatedAt: new Date().toISOString() };
+
+      if (name && typeof name === 'string') updateData.name = name.trim();
+      if (type) updateData.type = type;
+      if (color) updateData.color = color;
+      if (currentBalanceCents !== undefined && currentBalanceCents !== null) {
+        updateData.currentBalanceCents = Math.round(Number(currentBalanceCents));
+      }
+
+      const { data, error } = await supabase
+        .from('accounts')
+        .update(updateData)
+        .eq('id', accountId)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return { success: true, account: data };
+    } catch (err) {
+      console.error('Erro ao atualizar conta:', err);
+      return { success: false, error: err.message || 'Falha ao atualizar conta.' };
+    }
+  },
+
+  // Exclusão de Conta Bancária
+  async deleteAccount(accountId) {
+    try {
+      if (!accountId) throw new Error('ID da conta é obrigatório.');
+
+      // Desvincula transações para não quebrar integridade referencial ou remove
+      await supabase
+        .from('transactions')
+        .update({ accountId: null })
+        .eq('accountId', accountId);
+
+      const { error } = await supabase
+        .from('accounts')
+        .delete()
+        .eq('id', accountId);
+
+      if (error) throw error;
+      return { success: true };
+    } catch (err) {
+      console.error('Erro ao excluir conta:', err);
+      return { success: false, error: err.message || 'Falha ao excluir conta.' };
     }
   },
 
@@ -445,6 +559,36 @@ export const api = {
       return { success: true };
     } catch (err) {
       console.error('Erro ao remover conta fixa:', err);
+      return { success: false, error: err.message };
+    }
+  },
+
+  // Atualiza regra de conta fixa
+  async updateRecurring({ recurringId, description, amountCents, dayOfMonth, accountId, categoryId, type }) {
+    try {
+      const updateData = { updatedAt: new Date().toISOString() };
+      if (description) updateData.description = description.trim();
+      if (amountCents !== undefined && amountCents !== null) {
+        updateData.amountCents = Math.round(Number(amountCents));
+      }
+      if (dayOfMonth !== undefined && dayOfMonth !== null) {
+        updateData.dayOfMonth = Number(dayOfMonth);
+      }
+      if (accountId) updateData.accountId = accountId;
+      if (categoryId) updateData.categoryId = categoryId;
+      if (type) updateData.type = type;
+
+      const { data, error } = await supabase
+        .from('recurring_transactions')
+        .update(updateData)
+        .eq('id', recurringId)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return { success: true, recurring: data };
+    } catch (err) {
+      console.error('Erro ao atualizar conta fixa:', err);
       return { success: false, error: err.message };
     }
   },

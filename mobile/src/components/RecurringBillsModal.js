@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Modal,
   View,
@@ -18,6 +18,11 @@ import { Card } from './Card';
 import { Button } from './Button';
 import { Badge } from './Badge';
 import { api, formatCurrency } from '../services/api';
+import {
+  handleCurrencyInputChange,
+  formatCentsToDisplay,
+  parseFormattedToCents,
+} from '../utils/currencyMask';
 
 export function RecurringBillsModal({
   visible,
@@ -30,25 +35,26 @@ export function RecurringBillsModal({
   const [recurringList, setRecurringList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [editingItem, setEditingItem] = useState(null);
 
-  // Formulário de Nova Conta Fixa
+  // Formulário de Conta Fixa
   const [description, setDescription] = useState('');
-  const [amountStr, setAmountStr] = useState('');
+  const [amountStr, setAmountStr] = useState('0,00');
   const [type, setType] = useState('EXPENSE'); // 'EXPENSE' | 'INCOME'
   const [dayOfMonth, setDayOfMonth] = useState('5');
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [selectedCategoryId, setSelectedCategoryId] = useState('');
   const [saving, setSaving] = useState(false);
 
+  const scrollRef = useRef(null);
+
   const loadRecurring = async () => {
     if (!user) return;
     setLoading(true);
     try {
-      // 1. Sincroniza instâncias do mês corrente
       await api.syncRecurring(user.id);
-      // 2. Busca lista de regras ativas
       const list = await api.getRecurring(user.id);
-      setRecurringList(list);
+      setRecurringList(list || []);
     } catch (err) {
       console.warn('Erro ao carregar contas fixas:', err);
     } finally {
@@ -72,11 +78,31 @@ export function RecurringBillsModal({
     }
   }, [type, categories]);
 
-  const parseAmountToCents = (str) => {
-    if (!str) return 0;
-    const clean = str.replace(/[^\d.,]/g, '').replace(',', '.');
-    const num = parseFloat(clean);
-    return isNaN(num) ? 0 : Math.round(num * 100);
+  const handleAmountChange = (text) => {
+    const { formatted } = handleCurrencyInputChange(text);
+    setAmountStr(formatted);
+  };
+
+  const startEdit = (item) => {
+    setEditingItem(item);
+    setDescription(item.description || '');
+    setAmountStr(formatCentsToDisplay(item.amountCents || 0));
+    setType(item.type || 'EXPENSE');
+    setDayOfMonth(String(item.dayOfMonth || 5));
+    setSelectedAccountId(item.accountId || (accounts[0] ? accounts[0].id : ''));
+    setSelectedCategoryId(item.categoryId || '');
+    setShowAddForm(true);
+    setTimeout(() => {
+      scrollRef.current?.scrollTo({ y: 140, animated: true });
+    }, 100);
+  };
+
+  const cancelForm = () => {
+    setEditingItem(null);
+    setDescription('');
+    setAmountStr('0,00');
+    setDayOfMonth('5');
+    setShowAddForm(false);
   };
 
   const handleSave = async () => {
@@ -85,7 +111,7 @@ export function RecurringBillsModal({
       return;
     }
 
-    const cents = parseAmountToCents(amountStr);
+    const cents = parseFormattedToCents(amountStr);
     if (cents <= 0) {
       Alert.alert('Atenção', 'Informe um valor válido maior que zero.');
       return;
@@ -99,27 +125,42 @@ export function RecurringBillsModal({
 
     setSaving(true);
     try {
-      const res = await api.createRecurring({
-        userId: user.id,
-        accountId: selectedAccountId || (accounts[0] ? accounts[0].id : null),
-        categoryId: selectedCategoryId || null,
-        description: description.trim(),
-        type,
-        amountCents: cents,
-        frequency: 'MONTHLY',
-        dayOfMonth: day,
-      });
+      let res;
+      if (editingItem) {
+        res = await api.updateRecurring({
+          recurringId: editingItem.id,
+          description: description.trim(),
+          amountCents: cents,
+          dayOfMonth: day,
+          accountId: selectedAccountId || (accounts[0] ? accounts[0].id : null),
+          categoryId: selectedCategoryId || null,
+          type,
+        });
+      } else {
+        res = await api.createRecurring({
+          userId: user.id,
+          accountId: selectedAccountId || (accounts[0] ? accounts[0].id : null),
+          categoryId: selectedCategoryId || null,
+          description: description.trim(),
+          type,
+          amountCents: cents,
+          frequency: 'MONTHLY',
+          dayOfMonth: day,
+        });
+      }
 
       if (res.success) {
-        setDescription('');
-        setAmountStr('');
-        setDayOfMonth('5');
-        setShowAddForm(false);
+        cancelForm();
         await loadRecurring();
         if (onUpdate) onUpdate();
-        Alert.alert('Sucesso', 'Conta fixa cadastrada! Ela será gerada automaticamente todo mês.');
+        Alert.alert(
+          'Sucesso',
+          editingItem
+            ? 'Conta fixa atualizada com sucesso!'
+            : 'Conta fixa cadastrada! Ela será gerada automaticamente todo mês.'
+        );
       } else {
-        Alert.alert('Erro', res.error || 'Falha ao cadastrar conta fixa.');
+        Alert.alert('Erro', res.error || 'Falha ao salvar conta fixa.');
       }
     } catch (err) {
       Alert.alert('Erro', err.message || 'Erro inesperado.');
@@ -185,6 +226,7 @@ export function RecurringBillsModal({
           </View>
 
           <ScrollView
+            ref={scrollRef}
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
           >
@@ -215,16 +257,27 @@ export function RecurringBillsModal({
               <Button
                 title="+ Nova Conta Fixa"
                 variant="primary"
-                onPress={() => setShowAddForm(true)}
+                onPress={() => {
+                  setEditingItem(null);
+                  setDescription('');
+                  setAmountStr('0,00');
+                  setDayOfMonth('5');
+                  setShowAddForm(true);
+                  setTimeout(() => {
+                    scrollRef.current?.scrollTo({ y: 120, animated: true });
+                  }, 100);
+                }}
                 style={styles.addBtn}
                 icon={<Ionicons name="add-circle-outline" size={20} color={colors.background} />}
               />
             ) : (
-              /* FORMULÁRIO DE ADIÇÃO */
+              /* FORMULÁRIO DE ADIÇÃO OU EDIÇÃO */
               <Card style={styles.formCard} elevated>
                 <View style={styles.formHeader}>
-                  <Text style={styles.formTitle}>Cadastrar Conta Fixa</Text>
-                  <TouchableOpacity onPress={() => setShowAddForm(false)}>
+                  <Text style={styles.formTitle}>
+                    {editingItem ? 'Editar Conta Fixa' : 'Cadastrar Conta Fixa'}
+                  </Text>
+                  <TouchableOpacity onPress={cancelForm}>
                     <Text style={styles.cancelLink}>Cancelar</Text>
                   </TouchableOpacity>
                 </View>
@@ -269,21 +322,59 @@ export function RecurringBillsModal({
                       placeholderTextColor={colors.textMuted}
                       keyboardType="numeric"
                       value={amountStr}
-                      onChangeText={setAmountStr}
+                      onChangeText={handleAmountChange}
+                      onFocus={() => {
+                        setTimeout(() => {
+                          scrollRef.current?.scrollTo({ y: 220, animated: true });
+                        }, 120);
+                      }}
                     />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.inputLabel}>Dia Vencimento</Text>
                     <TextInput
                       style={styles.input}
-                      placeholder="Dia (1 a 31)"
+                      placeholder="Dia"
                       placeholderTextColor={colors.textMuted}
                       keyboardType="numeric"
                       value={dayOfMonth}
                       onChangeText={setDayOfMonth}
                       maxLength={2}
+                      onFocus={() => {
+                        setTimeout(() => {
+                          scrollRef.current?.scrollTo({ y: 240, animated: true });
+                        }, 120);
+                      }}
                     />
                   </View>
+                </View>
+
+                {/* Pílulas rápidas de seleção de dia */}
+                <Text style={[styles.inputLabel, { marginTop: -4 }]}>Dia do mês rápido:</Text>
+                <View style={styles.quickDaysRow}>
+                  {['1', '5', '10', '15', '20', '25', '28'].map((d) => {
+                    const isSelected = String(dayOfMonth) === d;
+                    return (
+                      <TouchableOpacity
+                        key={d}
+                        style={[
+                          styles.quickDayChip,
+                          isSelected && styles.quickDayChipActive,
+                        ]}
+                        onPress={() => setDayOfMonth(d)}
+                        activeOpacity={0.7}
+                      >
+                        <Text
+                          style={[
+                            styles.quickDayText,
+                            isSelected && styles.quickDayTextActive,
+                          ]}
+                        >
+                          Dia {d}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
 
                 {/* CONTA BANCÁRIA VINCULADA */}
@@ -321,7 +412,7 @@ export function RecurringBillsModal({
 
                 {/* BOTÃO SALVAR */}
                 <Button
-                  title={saving ? 'Salvando...' : 'Salvar Conta Fixa'}
+                  title={saving ? 'Salvando...' : editingItem ? 'Atualizar Conta Fixa' : 'Salvar Conta Fixa'}
                   variant="primary"
                   onPress={handleSave}
                   disabled={saving}
@@ -382,13 +473,24 @@ export function RecurringBillsModal({
                       >
                         {formatCurrency(item.amountCents)}
                       </Text>
-                      <TouchableOpacity
-                        onPress={() => handleDelete(item)}
-                        style={styles.trashBtn}
-                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                      >
-                        <Ionicons name="trash-outline" size={18} color={colors.danger} />
-                      </TouchableOpacity>
+
+                      <View style={styles.cardActionsRow}>
+                        <TouchableOpacity
+                          onPress={() => startEdit(item)}
+                          style={styles.editBtn}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <Ionicons name="pencil" size={16} color={colors.primary} />
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          onPress={() => handleDelete(item)}
+                          style={styles.trashBtn}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <Ionicons name="trash-outline" size={16} color={colors.expense} />
+                        </TouchableOpacity>
+                      </View>
                     </View>
                   </Card>
                 );
@@ -450,66 +552,73 @@ const styles = StyleSheet.create({
   },
   closeBtn: {
     padding: 6,
+    borderRadius: 8,
+    backgroundColor: colors.surfaceElevated,
   },
   scrollContent: {
     padding: 20,
-    paddingBottom: 40,
+    paddingBottom: 60,
   },
   summaryCard: {
+    marginBottom: 16,
     padding: 16,
-    marginBottom: 18,
-    backgroundColor: colors.cardHover,
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: colors.borderHighlight,
   },
   summaryRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-around',
+    marginBottom: 10,
   },
   summaryCol: {
+    alignItems: 'center',
     flex: 1,
   },
   divider: {
     width: 1,
-    height: '80%',
-    backgroundColor: colors.border,
-    marginHorizontal: 16,
+    height: 36,
+    backgroundColor: colors.borderHighlight,
   },
   summaryLabel: {
     fontSize: 11,
-    color: colors.textSecondary,
-    fontWeight: '700',
-    textTransform: 'uppercase',
+    color: colors.textMuted,
+    fontWeight: '600',
+    marginBottom: 4,
   },
   expenseText: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '900',
     color: colors.expense,
-    marginTop: 3,
   },
   incomeText: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '900',
     color: colors.income,
-    marginTop: 3,
   },
   summaryInfo: {
     fontSize: 11,
     color: colors.textMuted,
-    marginTop: 10,
-    lineHeight: 15,
+    textAlign: 'center',
+    borderTopWidth: 1,
+    borderTopColor: colors.borderHighlight,
+    paddingTop: 8,
   },
   addBtn: {
     marginBottom: 20,
   },
   formCard: {
-    padding: 18,
-    marginBottom: 24,
-    borderColor: colors.primary,
+    padding: 16,
+    marginBottom: 20,
+    backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
+    borderColor: colors.primary + '55',
   },
   formHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 14,
   },
   formTitle: {
@@ -525,29 +634,29 @@ const styles = StyleSheet.create({
   typeSelector: {
     flexDirection: 'row',
     gap: 8,
-    marginBottom: 16,
+    marginBottom: 14,
   },
   typeBtn: {
     flex: 1,
     paddingVertical: 10,
-    alignItems: 'center',
     borderRadius: 10,
-    backgroundColor: colors.background,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
     borderWidth: 1,
     borderColor: colors.border,
   },
   typeBtnExpense: {
-    backgroundColor: 'rgba(239, 68, 68, 0.12)',
     borderColor: colors.expense,
+    backgroundColor: colors.expenseGhost,
   },
   typeBtnIncome: {
-    backgroundColor: 'rgba(16, 185, 129, 0.12)',
     borderColor: colors.income,
+    backgroundColor: colors.incomeGhost,
   },
   typeBtnText: {
     fontSize: 13,
     fontWeight: '700',
-    color: colors.textSecondary,
+    color: colors.textMuted,
   },
   typeBtnTextActive: {
     color: colors.text,
@@ -559,19 +668,47 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   input: {
-    backgroundColor: colors.background,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    color: colors.text,
+    borderColor: colors.borderHighlight,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     fontSize: 14,
-    marginBottom: 14,
+    color: colors.text,
+    fontWeight: '600',
+    marginBottom: 12,
   },
   rowInputs: {
     flexDirection: 'row',
     gap: 12,
+  },
+  quickDaysRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 14,
+  },
+  quickDayChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 6,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  quickDayChipActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryGhost,
+  },
+  quickDayText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.textSecondary,
+  },
+  quickDayTextActive: {
+    color: colors.primary,
+    fontWeight: '900',
   },
   fieldSection: {
     marginBottom: 14,
@@ -583,10 +720,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingVertical: 8,
     paddingHorizontal: 12,
-    borderRadius: 10,
-    backgroundColor: colors.background,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
     marginRight: 8,
@@ -597,27 +734,26 @@ const styles = StyleSheet.create({
   },
   accChipText: {
     fontSize: 12,
-    color: colors.textSecondary,
     fontWeight: '600',
+    color: colors.textSecondary,
   },
   accChipTextActive: {
     color: colors.primary,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   submitBtn: {
-    marginTop: 6,
+    marginTop: 4,
   },
   listSectionHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 12,
   },
   listTitle: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '800',
-    color: colors.textSecondary,
-    textTransform: 'uppercase',
+    color: colors.text,
   },
   listCount: {
     fontSize: 12,
@@ -625,28 +761,31 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   emptyCard: {
-    padding: 24,
     alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 32,
     gap: 8,
   },
   emptyTitle: {
     fontSize: 15,
     fontWeight: '700',
     color: colors.text,
-    marginTop: 4,
   },
   emptySubtitle: {
     fontSize: 12,
     color: colors.textMuted,
     textAlign: 'center',
-    lineHeight: 17,
+    paddingHorizontal: 20,
   },
   recurringItemCard: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
     padding: 14,
     marginBottom: 10,
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: colors.borderHighlight,
   },
   itemLeft: {
     flexDirection: 'row',
@@ -658,49 +797,46 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 12,
-    justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1,
+    justifyContent: 'center',
   },
   dayCircleExpense: {
-    backgroundColor: 'rgba(239, 68, 68, 0.1)',
-    borderColor: 'rgba(239, 68, 68, 0.3)',
+    backgroundColor: colors.expenseGhost,
   },
   dayCircleIncome: {
-    backgroundColor: 'rgba(16, 185, 129, 0.1)',
-    borderColor: 'rgba(16, 185, 129, 0.3)',
+    backgroundColor: colors.incomeGhost,
   },
   dayNumber: {
     fontSize: 15,
     fontWeight: '900',
     color: colors.text,
-    lineHeight: 17,
   },
   dayLabel: {
     fontSize: 8,
     fontWeight: '800',
     color: colors.textMuted,
+    marginTop: -2,
   },
   itemInfo: {
     flex: 1,
+    marginRight: 8,
   },
   itemTitle: {
     fontSize: 14,
     fontWeight: '700',
     color: colors.text,
+    marginBottom: 2,
   },
   itemMeta: {
     fontSize: 11,
     color: colors.textMuted,
-    marginTop: 2,
   },
   itemRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
+    alignItems: 'flex-end',
+    gap: 6,
   },
   itemAmount: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '800',
   },
   textExpense: {
@@ -709,7 +845,19 @@ const styles = StyleSheet.create({
   textIncome: {
     color: colors.income,
   },
+  cardActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  editBtn: {
+    padding: 6,
+    borderRadius: 6,
+    backgroundColor: colors.primaryGhost,
+  },
   trashBtn: {
-    padding: 4,
+    padding: 6,
+    borderRadius: 6,
+    backgroundColor: colors.expenseGhost,
   },
 });

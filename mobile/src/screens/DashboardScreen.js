@@ -17,6 +17,8 @@ import { NewTransactionModal } from '../components/NewTransactionModal';
 import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
 import { AccountDetailsModal } from '../components/AccountDetailsModal';
 import { RecurringBillsModal } from '../components/RecurringBillsModal';
+import { CategoryExpenseChart } from '../components/CategoryExpenseChart';
+import { MonthlyForecastSummary } from '../components/MonthlyForecastSummary';
 
 export function DashboardScreen({ user, onNavigateToTransactions }) {
   const [loading, setLoading] = useState(true);
@@ -38,10 +40,10 @@ export function DashboardScreen({ user, onNavigateToTransactions }) {
       // 1. Sincroniza instâncias de contas fixas para o mês corrente
       await api.syncRecurring(user.id);
 
-      // 2. Carrega todos os dados atualizados
+      // 2. Carrega todos os dados atualizados (100 transações para gráficos e previsão orçamentária)
       const [accs, txs, crds, cats, recs] = await Promise.all([
         api.getAccounts(user.id),
-        api.getTransactions(user.id, 10),
+        api.getTransactions(user.id, 100),
         api.getCards(user.id),
         api.getCategories(user.id),
         api.getRecurring(user.id),
@@ -157,7 +159,16 @@ export function DashboardScreen({ user, onNavigateToTransactions }) {
           </View>
         </Card>
 
-        {/* 2. CARROSSEL DE CONTAS BANCÁRIAS */}
+        {/* 2. RESUMO DO MÊS & PREVISÃO ORÇAMENTÁRIA (COBERTURA DO CARTÃO) */}
+        <MonthlyForecastSummary
+          accounts={accounts}
+          transactions={transactions}
+          cards={cards}
+          recurringBills={recurringBills}
+          hideValues={hideValues}
+        />
+
+        {/* 3. CARROSSEL DE CONTAS BANCÁRIAS */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Suas Contas</Text>
           <Text style={styles.sectionSubtitle}>{accounts.length} cadastrada(s)</Text>
@@ -190,7 +201,7 @@ export function DashboardScreen({ user, onNavigateToTransactions }) {
           </ScrollView>
         )}
 
-        {/* 3. SEÇÃO DE CONTAS FIXAS & VENCIMENTOS */}
+        {/* 4. SEÇÃO DE CONTAS FIXAS & VENCIMENTOS */}
         <View style={styles.sectionHeader}>
           <View>
             <Text style={styles.sectionTitle}>Contas Fixas do Mês</Text>
@@ -266,7 +277,14 @@ export function DashboardScreen({ user, onNavigateToTransactions }) {
           </ScrollView>
         )}
 
-        {/* 4. TRANSAÇÕES RECENTES */}
+        {/* 5. ONDE O DINHEIRO ESTÁ INDO (GRÁFICO POR CATEGORIA COM CORES) */}
+        <CategoryExpenseChart
+          transactions={transactions}
+          categories={categories}
+          hideValues={hideValues}
+        />
+
+        {/* 6. TRANSAÇÕES RECENTES */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Últimas Transações</Text>
           {onNavigateToTransactions && (
@@ -283,7 +301,7 @@ export function DashboardScreen({ user, onNavigateToTransactions }) {
           </Card>
         ) : (
           <View style={styles.txList}>
-            {transactions.map((tx) => {
+            {transactions.slice(0, 8).map((tx) => {
               const isExpense = tx.type === 'EXPENSE';
               return (
                 <TouchableOpacity
@@ -360,6 +378,14 @@ export function DashboardScreen({ user, onNavigateToTransactions }) {
         account={selectedAccount}
         transactions={transactions}
         onSelectTransaction={(tx) => setSelectedTx(tx)}
+        onUpdated={() => {
+          setSelectedAccount(null);
+          loadData();
+        }}
+        onDeleted={() => {
+          setSelectedAccount(null);
+          loadData();
+        }}
       />
 
       {/* MODAL DETALHES DO LANÇAMENTO / CONTA */}
