@@ -50,6 +50,12 @@ export function NewTransactionModal({
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Estados de Recorrência & Parcelamento
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [dayOfMonth, setDayOfMonth] = useState(String(new Date().getDate()));
+  const [isInstallment, setIsInstallment] = useState(false);
+  const [installmentsCount, setInstallmentsCount] = useState('2');
+
   // Estados dos menus seletores
   const [activeMenu, setActiveMenu] = useState(null); // 'PAYMENT_SOURCE' | 'CATEGORY' | 'DESTINATION'
   const [newOptionName, setNewOptionName] = useState('');
@@ -197,21 +203,48 @@ export function NewTransactionModal({
 
     setLoading(true);
     try {
-      const res = await api.createTransaction({
-        userId: user.id,
-        accountId: finalAccountId,
-        cardId: finalCardId,
-        categoryId: selectedCategoryId || null,
-        type,
-        amountCents: cents,
-        description: description.trim(),
-        notes: notes.trim() || undefined,
-      });
+      let res;
+      if (isRecurring) {
+        res = await api.createRecurring({
+          userId: user.id,
+          accountId: finalAccountId,
+          categoryId: selectedCategoryId || null,
+          description: description.trim(),
+          type,
+          amountCents: cents,
+          frequency: 'MONTHLY',
+          dayOfMonth: parseInt(dayOfMonth, 10) || new Date().getDate(),
+        });
+      } else if (isInstallment && type === 'EXPENSE') {
+        res = await api.createInstallmentTransactions({
+          userId: user.id,
+          accountId: finalAccountId,
+          cardId: finalCardId,
+          categoryId: selectedCategoryId || null,
+          description: description.trim(),
+          totalAmountCents: cents,
+          totalInstallments: parseInt(installmentsCount, 10) || 2,
+          notes: notes.trim() || undefined,
+        });
+      } else {
+        res = await api.createTransaction({
+          userId: user.id,
+          accountId: finalAccountId,
+          cardId: finalCardId,
+          categoryId: selectedCategoryId || null,
+          type,
+          amountCents: cents,
+          description: description.trim(),
+          notes: notes.trim() || undefined,
+        });
+      }
 
       if (res.success) {
         setDescription('');
         setAmountStr('');
         setNotes('');
+        setIsRecurring(false);
+        setIsInstallment(false);
         onSuccess();
         onClose();
       } else {
@@ -503,6 +536,134 @@ export function NewTransactionModal({
                 </View>
               </>
             )}
+
+            {/* 3. OPÇÕES DE CONTA FIXA E PARCELAMENTO */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Automação & Planejamento</Text>
+              <View style={styles.automationRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.automationPill,
+                    isRecurring && styles.automationPillActive,
+                  ]}
+                  onPress={() => {
+                    const next = !isRecurring;
+                    setIsRecurring(next);
+                    if (next) setIsInstallment(false);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons
+                    name="repeat"
+                    size={16}
+                    color={isRecurring ? colors.primary : colors.textMuted}
+                  />
+                  <Text
+                    style={[
+                      styles.automationPillText,
+                      isRecurring && styles.automationPillTextActive,
+                    ]}
+                  >
+                    Conta Fixa (Todo Mês)
+                  </Text>
+                </TouchableOpacity>
+
+                {type === 'EXPENSE' && (
+                  <TouchableOpacity
+                    style={[
+                      styles.automationPill,
+                      isInstallment && styles.automationPillActive,
+                    ]}
+                    onPress={() => {
+                      const next = !isInstallment;
+                      setIsInstallment(next);
+                      if (next) setIsRecurring(false);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name="layers-outline"
+                      size={16}
+                      color={isInstallment ? colors.primary : colors.textMuted}
+                    />
+                    <Text
+                      style={[
+                        styles.automationPillText,
+                        isInstallment && styles.automationPillTextActive,
+                      ]}
+                    >
+                      Parcelamento
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {/* Sub-configuração de Conta Fixa */}
+              {isRecurring && (
+                <View style={styles.subConfigBox}>
+                  <View style={styles.subConfigHeader}>
+                    <Ionicons name="information-circle-outline" size={16} color={colors.primary} />
+                    <Text style={styles.subConfigDesc}>
+                      Esta conta será lançada automaticamente todo mês no dia escolhido.
+                    </Text>
+                  </View>
+                  <View style={styles.subConfigInputRow}>
+                    <Text style={styles.subConfigLabel}>Dia de vencimento:</Text>
+                    <TextInput
+                      style={styles.dayInput}
+                      keyboardType="numeric"
+                      maxLength={2}
+                      value={dayOfMonth}
+                      onChangeText={setDayOfMonth}
+                      placeholder="Dia"
+                      placeholderTextColor={colors.textMuted}
+                    />
+                  </View>
+                </View>
+              )}
+
+              {/* Sub-configuração de Parcelamento */}
+              {isInstallment && type === 'EXPENSE' && (
+                <View style={styles.subConfigBox}>
+                  <Text style={styles.subConfigDesc}>
+                    Escolha o número de parcelas mensais:
+                  </Text>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={styles.installmentsScroll}
+                  >
+                    {['2', '3', '4', '5', '6', '10', '12', '18', '24'].map((count) => {
+                      const active = installmentsCount === count;
+                      return (
+                        <TouchableOpacity
+                          key={count}
+                          style={[
+                            styles.installmentChip,
+                            active && styles.installmentChipActive,
+                          ]}
+                          onPress={() => setInstallmentsCount(count)}
+                        >
+                          <Text
+                            style={[
+                              styles.installmentChipText,
+                              active && styles.installmentChipTextActive,
+                            ]}
+                          >
+                            {count}x
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                  {parseAmountToCents(amountStr) > 0 && (
+                    <Text style={styles.installmentCalcText}>
+                      ⚡ {installmentsCount} parcelas de {formatCurrency(Math.floor(parseAmountToCents(amountStr) / (parseInt(installmentsCount, 10) || 1)))}/mês
+                    </Text>
+                  )}
+                </View>
+              )}
+            </View>
 
             {/* Observações Opcionais */}
             <View style={styles.inputGroup}>
@@ -1095,5 +1256,113 @@ const styles = StyleSheet.create({
     color: colors.textInverse,
     fontWeight: '800',
     fontSize: 13,
+  },
+  // AUTOMAÇÃO & PARCELAMENTO
+  automationRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 2,
+  },
+  automationPill: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 11,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: 1.5,
+    borderColor: colors.borderHighlight,
+  },
+  automationPillActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryGhost,
+  },
+  automationPillText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.textSecondary,
+  },
+  automationPillTextActive: {
+    color: colors.primary,
+    fontWeight: '800',
+  },
+  subConfigBox: {
+    backgroundColor: colors.surfaceElevated,
+    borderRadius: 14,
+    padding: 14,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: colors.borderHighlight,
+  },
+  subConfigHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  subConfigDesc: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    lineHeight: 16,
+    flex: 1,
+  },
+  subConfigInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 4,
+  },
+  subConfigLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  dayInput: {
+    width: 64,
+    height: 40,
+    backgroundColor: colors.surface,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  installmentsScroll: {
+    flexDirection: 'row',
+    marginTop: 10,
+    marginBottom: 8,
+  },
+  installmentChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginRight: 8,
+  },
+  installmentChipActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryGhost,
+  },
+  installmentChipText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.textSecondary,
+  },
+  installmentChipTextActive: {
+    color: colors.primary,
+    fontWeight: '900',
+  },
+  installmentCalcText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.primary,
+    marginTop: 4,
   },
 });

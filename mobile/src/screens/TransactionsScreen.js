@@ -30,6 +30,9 @@ export function TransactionsScreen({ user }) {
   const loadData = useCallback(async () => {
     if (!user) return;
     try {
+      // Sincroniza contas fixas pendentes/confirmadas antes de puxar a lista
+      await api.syncRecurring(user.id);
+
       const [txs, accs, crds, cats] = await Promise.all([
         api.getTransactions(user.id, 100),
         api.getAccounts(user.id),
@@ -53,8 +56,18 @@ export function TransactionsScreen({ user }) {
   }, [loadData]);
 
   const filteredTransactions = transactions.filter((tx) => {
+    const isRecurringOrInstallment =
+      Boolean(tx.isRecurring) ||
+      Boolean(tx.recurringTransactionId) ||
+      (typeof tx.notes === 'string' && (tx.notes.includes('Parcela ') || tx.notes.includes('parcela')));
+
     const matchesType =
-      filterType === 'ALL' ? true : tx.type === filterType;
+      filterType === 'ALL'
+        ? true
+        : filterType === 'RECURRING'
+        ? isRecurringOrInstallment
+        : tx.type === filterType;
+
     const matchesSearch =
       search.trim() === ''
         ? true
@@ -88,6 +101,7 @@ export function TransactionsScreen({ user }) {
             { id: 'ALL', label: 'Todas' },
             { id: 'EXPENSE', label: 'Despesas' },
             { id: 'INCOME', label: 'Receitas' },
+            { id: 'RECURRING', label: 'Fixas/Parcelas' },
           ].map((item) => {
             const active = filterType === item.id;
             return (
@@ -135,9 +149,13 @@ export function TransactionsScreen({ user }) {
         }
         renderItem={({ item: tx }) => {
           const isExpense = tx.type === 'EXPENSE';
+          const isPending = tx.status === 'PENDING';
+          const isRecurring = Boolean(tx.isRecurring || tx.recurringTransactionId);
+          const isInstallment = typeof tx.notes === 'string' && (tx.notes.includes('Parcela ') || tx.notes.includes('parcela'));
+
           return (
             <TouchableOpacity
-              style={styles.txRow}
+              style={[styles.txRow, isPending && styles.txRowPending]}
               activeOpacity={0.7}
               onPress={() => setSelectedTx(tx)}
             >
@@ -148,16 +166,33 @@ export function TransactionsScreen({ user }) {
                 ]}
               >
                 <Ionicons
-                  name={isExpense ? 'arrow-down' : 'arrow-up'}
+                  name={isPending ? 'time' : (isExpense ? 'arrow-down' : 'arrow-up')}
                   size={18}
-                  color={isExpense ? colors.expense : colors.income}
+                  color={isPending ? colors.warning : (isExpense ? colors.expense : colors.income)}
                 />
               </View>
 
               <View style={styles.txDetails}>
-                <Text style={styles.txTitle} numberOfLines={1} ellipsizeMode="tail">
-                  {tx.description}
-                </Text>
+                <View style={styles.txTitleRow}>
+                  <Text style={styles.txTitle} numberOfLines={1} ellipsizeMode="tail">
+                    {tx.description}
+                  </Text>
+                  {isPending && (
+                    <View style={styles.pendingBadge}>
+                      <Text style={styles.pendingBadgeText}>A VENCER</Text>
+                    </View>
+                  )}
+                  {isRecurring && !isPending && (
+                    <View style={styles.recurringTag}>
+                      <Text style={styles.recurringTagText}>Fixa</Text>
+                    </View>
+                  )}
+                  {isInstallment && (
+                    <View style={styles.installmentTag}>
+                      <Text style={styles.installmentTagText}>Parcela</Text>
+                    </View>
+                  )}
+                </View>
                 <Text style={styles.txDate} numberOfLines={1} ellipsizeMode="tail">
                   {formatDate(tx.date)}{tx.notes ? ` • ${tx.notes}` : ''}
                 </Text>
@@ -167,12 +202,15 @@ export function TransactionsScreen({ user }) {
                 <Text
                   style={[
                     styles.txValue,
-                    { color: isExpense ? colors.expense : colors.income },
+                    { color: isPending ? colors.warning : (isExpense ? colors.expense : colors.income) },
                   ]}
                   numberOfLines={1}
                 >
                   {isExpense ? '-' : '+'} {formatCurrency(tx.amountCents)}
                 </Text>
+                {isPending && (
+                  <Text style={styles.txPendingSub}>Toque p/ pagar</Text>
+                )}
               </View>
             </TouchableOpacity>
           );
@@ -320,6 +358,62 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     textAlign: 'right',
+  },
+  txRowPending: {
+    borderColor: colors.warning,
+    borderLeftWidth: 4,
+    borderLeftColor: colors.warning,
+    backgroundColor: colors.surfaceElevated,
+  },
+  txTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 4,
+  },
+  pendingBadge: {
+    backgroundColor: colors.warningGhost,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: colors.warning,
+  },
+  pendingBadgeText: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: colors.warning,
+  },
+  recurringTag: {
+    backgroundColor: colors.primaryGhost,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  recurringTagText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: colors.primary,
+  },
+  installmentTag: {
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: colors.borderHighlight,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  installmentTagText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: colors.textSecondary,
+  },
+  txPendingSub: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.warning,
+    marginTop: 2,
   },
   emptyCard: {
     alignItems: 'center',

@@ -23,6 +23,7 @@ export function TransactionDetailsModal({
   onDeleted,
 }) {
   const [deleting, setDeleting] = useState(false);
+  const [confirming, setConfirming] = useState(false);
 
   if (!transaction) return null;
 
@@ -33,6 +34,24 @@ export function TransactionDetailsModal({
 
   const accountName = card ? `Cartão: ${card.name}` : (account?.name || 'Conta Padrão');
   const accountColor = card ? (card.color || colors.primary) : (account?.color || colors.primary);
+
+  const handleConfirmPayment = async () => {
+    setConfirming(true);
+    try {
+      const res = await api.confirmPendingTransaction(transaction);
+      if (res.success) {
+        Alert.alert('Sucesso', 'Pagamento confirmado e saldo da conta atualizado!');
+        if (onDeleted) onDeleted();
+        onClose();
+      } else {
+        Alert.alert('Erro', res.error || 'Falha ao confirmar pagamento.');
+      }
+    } catch (err) {
+      Alert.alert('Erro', err.message || 'Erro inesperado.');
+    } finally {
+      setConfirming(false);
+    }
+  };
 
   const handleDelete = () => {
     Alert.alert(
@@ -215,15 +234,30 @@ export function TransactionDetailsModal({
               {/* Status */}
               <View style={[styles.detailRow, { borderBottomWidth: 0 }]}>
                 <View style={styles.detailIconBox}>
-                  <Ionicons name="checkmark-circle-outline" size={18} color={colors.primary} />
+                  <Ionicons
+                    name={transaction.status === 'CONFIRMED' ? 'checkmark-circle-outline' : 'time-outline'}
+                    size={18}
+                    color={transaction.status === 'CONFIRMED' ? colors.primary : colors.warning}
+                  />
                 </View>
                 <View style={styles.detailContent}>
                   <Text style={styles.detailLabel}>Status da Transação</Text>
                   <View style={styles.statusBox}>
-                    <Text style={styles.statusText}>
-                      {transaction.status === 'CONFIRMED' ? 'Confirmado' : transaction.status || 'Ativo'}
+                    <Text
+                      style={[
+                        styles.statusText,
+                        transaction.status === 'PENDING' && { color: colors.warning },
+                      ]}
+                    >
+                      {transaction.status === 'CONFIRMED'
+                        ? 'Confirmado / Pago'
+                        : transaction.status === 'PENDING'
+                        ? 'Pendente (A Vencer)'
+                        : transaction.status}
                     </Text>
-                    <Text style={styles.statusSub}> • Nuvem Supabase</Text>
+                    {transaction.isRecurring && (
+                      <Text style={styles.statusSub}> • 🔄 Conta Fixa</Text>
+                    )}
                   </View>
                 </View>
               </View>
@@ -231,6 +265,24 @@ export function TransactionDetailsModal({
 
             {/* Botões de Ação */}
             <View style={styles.actionsContainer}>
+              {transaction.status === 'PENDING' && (
+                <TouchableOpacity
+                  style={styles.payBtn}
+                  onPress={handleConfirmPayment}
+                  disabled={confirming}
+                  activeOpacity={0.8}
+                >
+                  {confirming ? (
+                    <ActivityIndicator size="small" color={colors.textInverse} />
+                  ) : (
+                    <>
+                      <Ionicons name="checkmark-done-circle" size={18} color={colors.textInverse} />
+                      <Text style={styles.payBtnText}>Marcar como Paga / Debitar</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              )}
+
               <TouchableOpacity
                 style={styles.deleteBtn}
                 onPress={handleDelete}
@@ -425,6 +477,20 @@ const styles = StyleSheet.create({
   actionsContainer: {
     gap: 10,
     marginTop: 4,
+  },
+  payBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: colors.primary,
+    gap: 8,
+  },
+  payBtnText: {
+    color: colors.background,
+    fontSize: 14,
+    fontWeight: '800',
   },
   deleteBtn: {
     flexDirection: 'row',

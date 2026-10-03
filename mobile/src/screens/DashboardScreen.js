@@ -16,6 +16,7 @@ import { api, formatCurrency, formatDate } from '../services/api';
 import { NewTransactionModal } from '../components/NewTransactionModal';
 import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
 import { AccountDetailsModal } from '../components/AccountDetailsModal';
+import { RecurringBillsModal } from '../components/RecurringBillsModal';
 
 export function DashboardScreen({ user, onNavigateToTransactions }) {
   const [loading, setLoading] = useState(true);
@@ -24,24 +25,32 @@ export function DashboardScreen({ user, onNavigateToTransactions }) {
   const [transactions, setTransactions] = useState([]);
   const [cards, setCards] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [recurringBills, setRecurringBills] = useState([]);
   const [hideValues, setHideValues] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
+  const [recurringModalVisible, setRecurringModalVisible] = useState(false);
   const [selectedTx, setSelectedTx] = useState(null);
   const [selectedAccount, setSelectedAccount] = useState(null);
 
   const loadData = useCallback(async () => {
     if (!user) return;
     try {
-      const [accs, txs, crds, cats] = await Promise.all([
+      // 1. Sincroniza instâncias de contas fixas para o mês corrente
+      await api.syncRecurring(user.id);
+
+      // 2. Carrega todos os dados atualizados
+      const [accs, txs, crds, cats, recs] = await Promise.all([
         api.getAccounts(user.id),
         api.getTransactions(user.id, 10),
         api.getCards(user.id),
         api.getCategories(user.id),
+        api.getRecurring(user.id),
       ]);
       setAccounts(accs);
       setTransactions(txs);
       setCards(crds);
       setCategories(cats);
+      setRecurringBills(recs || []);
     } catch (err) {
       console.warn('Erro ao carregar dados do Dashboard:', err);
     } finally {
@@ -181,7 +190,83 @@ export function DashboardScreen({ user, onNavigateToTransactions }) {
           </ScrollView>
         )}
 
-        {/* 3. TRANSAÇÕES RECENTES */}
+        {/* 3. SEÇÃO DE CONTAS FIXAS & VENCIMENTOS */}
+        <View style={styles.sectionHeader}>
+          <View>
+            <Text style={styles.sectionTitle}>Contas Fixas do Mês</Text>
+            <Text style={styles.sectionSubtitle}>
+              {recurringBills.length === 0
+                ? 'Nenhuma configurada'
+                : `${recurringBills.length} ativa(s) • ${formatCurrency(recurringBills.reduce((acc, r) => acc + (r.type === 'EXPENSE' ? Number(r.amountCents || 0) : 0), 0))}`}
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={styles.manageBillsBtn}
+            onPress={() => setRecurringModalVisible(true)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="repeat" size={14} color={colors.primary} />
+            <Text style={styles.manageBillsText}>Gerenciar</Text>
+          </TouchableOpacity>
+        </View>
+
+        {recurringBills.length === 0 && !loading ? (
+          <TouchableOpacity
+            onPress={() => setRecurringModalVisible(true)}
+            activeOpacity={0.8}
+          >
+            <Card style={styles.emptyBillsCard}>
+              <View style={styles.emptyBillsLeft}>
+                <View style={styles.emptyBillsIconBox}>
+                  <Ionicons name="calendar-outline" size={20} color={colors.primary} />
+                </View>
+                <View>
+                  <Text style={styles.emptyBillsTitle}>Cadastre suas contas fixas</Text>
+                  <Text style={styles.emptyBillsSub}>Aluguel, Luz, Água, Internet e Salário</Text>
+                </View>
+              </View>
+              <Ionicons name="add-circle" size={24} color={colors.primary} />
+            </Card>
+          </TouchableOpacity>
+        ) : (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.recurringScroll}>
+            {recurringBills.map((item) => {
+              const isExpense = item.type === 'EXPENSE';
+              return (
+                <Card
+                  key={item.id}
+                  style={styles.recurringCard}
+                  elevated
+                  onPress={() => setRecurringModalVisible(true)}
+                >
+                  <View style={styles.recurringCardTop}>
+                    <View
+                      style={[
+                        styles.recurringDayBadge,
+                        isExpense ? styles.dayBadgeExpense : styles.dayBadgeIncome,
+                      ]}
+                    >
+                      <Text style={styles.recurringDayNum}>
+                        {String(item.dayOfMonth || 5).padStart(2, '0')}
+                      </Text>
+                      <Text style={styles.recurringDaySub}>DIA</Text>
+                    </View>
+                    <Badge
+                      title={isExpense ? 'MENSAL' : 'RECEITA'}
+                      variant={isExpense ? 'warning' : 'success'}
+                    />
+                  </View>
+                  <Text style={styles.recurringCardName} numberOfLines={1}>{item.description}</Text>
+                  <Text style={[styles.recurringCardAmount, isExpense ? styles.textExpense : styles.textIncome]}>
+                    {hideValues ? '••••' : formatCurrency(item.amountCents)}
+                  </Text>
+                </Card>
+              );
+            })}
+          </ScrollView>
+        )}
+
+        {/* 4. TRANSAÇÕES RECENTES */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Últimas Transações</Text>
           {onNavigateToTransactions && (
@@ -289,6 +374,16 @@ export function DashboardScreen({ user, onNavigateToTransactions }) {
           setSelectedTx(null);
           loadData();
         }}
+      />
+
+      {/* MODAL GERENCIAMENTO DE CONTAS FIXAS & RECORRENTES */}
+      <RecurringBillsModal
+        visible={recurringModalVisible}
+        onClose={() => setRecurringModalVisible(false)}
+        user={user}
+        accounts={accounts}
+        categories={categories}
+        onUpdate={loadData}
       />
     </View>
   );
@@ -529,5 +624,106 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.4,
     shadowRadius: 8,
     elevation: 8,
+  },
+  manageBillsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.primaryGhost,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  manageBillsText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+  emptyBillsCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    marginBottom: 20,
+    borderStyle: 'dashed',
+    borderWidth: 1.5,
+    borderColor: colors.borderHighlight,
+  },
+  emptyBillsLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  emptyBillsIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.primaryGhost,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyBillsTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  emptyBillsSub: {
+    fontSize: 11,
+    color: colors.textMuted,
+    marginTop: 2,
+  },
+  recurringScroll: {
+    marginBottom: 24,
+  },
+  recurringCard: {
+    width: 170,
+    marginRight: 12,
+    padding: 14,
+  },
+  recurringCardTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  recurringDayBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  dayBadgeExpense: {
+    backgroundColor: colors.expenseGhost,
+  },
+  dayBadgeIncome: {
+    backgroundColor: colors.incomeGhost,
+  },
+  recurringDayNum: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: colors.text,
+  },
+  recurringDaySub: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: colors.textMuted,
+    marginTop: -2,
+  },
+  recurringCardName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 6,
+  },
+  recurringCardAmount: {
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  textExpense: {
+    color: colors.expense,
+  },
+  textIncome: {
+    color: colors.income,
   },
 });

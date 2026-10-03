@@ -352,7 +352,333 @@ export const api = {
       return { success: true };
     } catch (err) {
       console.error('Erro ao excluir transação:', err);
-      return { success: false, error: err.message || 'Falha ao excluir transação.' };
+      return { success: false, error: err.message };
+    }
+  },
+
+  // ==========================================
+  // 🔄 RECORRÊNCIAS & CONTAS FIXAS AUTOMÁTICAS
+  // ==========================================
+
+  // Busca regras de contas fixas cadastradas
+  async getRecurring(userId) {
+    try {
+      const { data, error } = await supabase
+        .from('recurring_transactions')
+        .select('*')
+        .eq('userId', userId)
+        .eq('active', true)
+        .order('dayOfMonth', { ascending: true });
+
+      if (error) throw error;
+      return data || [];
+    } catch (err) {
+      console.warn('Erro ao buscar contas fixas:', err);
+      return [];
+    }
+  },
+
+  // Cadastro de Conta Fixa (Aluguel, Luz, Salário, etc.)
+  async createRecurring({ userId, accountId, categoryId, description, type = 'EXPENSE', amountCents, frequency = 'MONTHLY', dayOfMonth = 5 }) {
+    try {
+      const cents = Math.round(Number(amountCents));
+      if (cents <= 0) throw new Error('O valor deve ser maior que zero.');
+
+      let targetAccountId = accountId;
+      if (!targetAccountId) {
+        const { data: userAccounts } = await supabase
+          .from('accounts')
+          .select('id')
+          .eq('userId', userId)
+          .limit(1);
+        if (userAccounts && userAccounts.length > 0) {
+          targetAccountId = userAccounts[0].id;
+        } else {
+          throw new Error('Cadastre ao menos uma conta bancária antes de criar uma conta fixa.');
+        }
+      }
+
+      const newRecId = 'rec_' + Math.random().toString(36).substring(2, 11) + Date.now();
+      const now = new Date();
+      const nowIso = now.toISOString();
+
+      const { data, error } = await supabase
+        .from('recurring_transactions')
+        .insert({
+          id: newRecId,
+          userId,
+          accountId: targetAccountId,
+          categoryId: categoryId || null,
+          description: description.trim(),
+          type,
+          amountCents: cents,
+          frequency,
+          dayOfMonth: Number(dayOfMonth) || now.getDate(),
+          startDate: nowIso,
+          active: true,
+          updatedAt: nowIso,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Executa auto-sync imediato para materializar no mês atual
+      await this.syncRecurring(userId);
+
+      return { success: true, recurring: data };
+    } catch (err) {
+      console.error('Erro ao cadastrar conta fixa:', err);
+      return { success: false, error: err.message || 'Falha ao cadastrar conta fixa.' };
+    }
+  },
+
+  // Desativa ou exclui conta fixa
+  async deleteRecurring(recurringId) {
+    try {
+      const { error } = await supabase
+        .from('recurring_transactions')
+        .update({ active: false, updatedAt: new Date().toISOString() })
+        .eq('id', recurringId);
+
+      if (error) throw error;
+      return { success: true };
+    } catch (err) {
+      console.error('Erro ao remover conta fixa:', err);
+      return { success: false, error: err.message };
+    }
+  },
+
+  // Motor de Sincronização Automática: Materializa as contas fixas do mês corrente
+  async syncRecurring(userId) {
+    try {
+      const recurringList = await this.getRecurring(userId);
+      if (!recurringList || recurringList.length === 0) return { processed: 0 };
+
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth(); // 0 a 11
+      const startOfMonth = new Date(currentYear, currentMonth, 1).toISOString();
+      const endOfMonth = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59, 999).toISOString();
+
+      // Busca transações já criadas no mês corrente para este usuário
+      const { data: monthTxs } = await supabase
+        .from('transactions')
+        .select('id, recurringTransactionId, date, status')
+        .eq('userId', userId)
+        .gte('date', startOfMonth)
+        .lte('date', endOfMonth);
+
+      const existingRecIds = new Set(
+        (monthTxs || []).map((t) => t.recurringTransactionId).filter(Boolean)
+      );
+
+      let createdCount = 0;
+
+      for (const rec of recurringList) {
+        if (existingRecIds.has(rec.id)) {
+          continue; // Já foi gerada para o mês atual!
+        }
+
+        // Calcula a data de vencimento no mês atual
+        const targetDay = Number(rec.dayOfMonth) || 5;
+        const maxDaysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+        const effectiveDay = Math.min(targetDay, maxDaysInMonth);
+        const billDate = new Date(currentYear, currentMonth, effectiveDay, 12, 0, 0);
+
+        // Se a data de vencimento já chegou ou passou, já debita e marca CONFIRMED
+        // Se a data de vencimento é futura no mês, marca PENDING (a pagar)
+        const isPastOrToday = billDate <= now || billDate.toDateString() === now.toDateString();
+        const status = isPastOrToday ? 'CONFIRMED' : 'PENDING';
+
+        const newTxId = 'tx_rec_' + Math.random().toString(36).substring(2, 10) + Date.now();
+        const nowIso = new Date().toISOString();
+
+        const { error: insErr } = await supabase.from('transactions').insert({
+          id: newTxId,
+          userId,
+          accountId: rec.accountId || null,
+          categoryId: rec.categoryId || null,
+          type: rec.type,
+          amountCents: Number(rec.amountCents),
+          description: rec.description,
+          notes: `Conta Fixa Automática (${rec.frequency === 'MONTHLY' ? 'Mensal' : rec.frequency} - Venc. dia ${effectiveDay})`,
+          date: billDate.toISOString(),
+          status,
+          isRecurring: true,
+          recurringTransactionId: rec.id,
+          updatedAt: nowIso,
+        });
+
+        if (!insErr) {
+          createdCount++;
+          // Se for CONFIRMED e tiver conta vinculada, atualiza o saldo
+          if (status === 'CONFIRMED' && rec.accountId) {
+            const { data: acc } = await supabase
+              .from('accounts')
+              .select('currentBalanceCents')
+              .eq('id', rec.accountId)
+              .single();
+
+            if (acc) {
+              const current = Number(acc.currentBalanceCents || 0);
+              const delta = rec.type === 'INCOME' ? Number(rec.amountCents) : -Number(rec.amountCents);
+              await supabase
+                .from('accounts')
+                .update({
+                  currentBalanceCents: current + delta,
+                  updatedAt: nowIso,
+                })
+                .eq('id', rec.accountId);
+            }
+          }
+        }
+      }
+
+      return { success: true, createdCount };
+    } catch (err) {
+      console.warn('Erro ao sincronizar contas fixas:', err);
+      return { success: false, error: err.message };
+    }
+  },
+
+  // Confirmar pagamento de uma conta pendente com atualização de saldo
+  async confirmPendingTransaction(tx) {
+    try {
+      if (!tx || !tx.id) throw new Error('Transação inválida.');
+
+      const nowIso = new Date().toISOString();
+
+      // 1. Atualiza status para CONFIRMED
+      const { data, error } = await supabase
+        .from('transactions')
+        .update({
+          status: 'CONFIRMED',
+          updatedAt: nowIso,
+        })
+        .eq('id', tx.id)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // 2. Debita o saldo da conta bancária vinculada
+      if (tx.accountId) {
+        const { data: acc } = await supabase
+          .from('accounts')
+          .select('currentBalanceCents')
+          .eq('id', tx.accountId)
+          .single();
+
+        if (acc) {
+          const current = Number(acc.currentBalanceCents || 0);
+          const cents = Number(tx.amountCents || 0);
+          const delta = tx.type === 'INCOME' ? cents : -cents;
+          await supabase
+            .from('accounts')
+            .update({
+              currentBalanceCents: current + delta,
+              updatedAt: nowIso,
+            })
+            .eq('id', tx.accountId);
+        }
+      }
+
+      return { success: true, transaction: data };
+    } catch (err) {
+      console.error('Erro ao confirmar pagamento:', err);
+      return { success: false, error: err.message };
+    }
+  },
+
+  // ==========================================
+  // 📦 COMPRAS PARCELADAS AUTOMÁTICAS (2x a 48x)
+  // ==========================================
+  async createInstallmentTransactions({
+    userId,
+    accountId,
+    cardId,
+    categoryId,
+    description,
+    totalAmountCents,
+    totalInstallments,
+    firstDate = new Date(),
+    notes,
+  }) {
+    try {
+      const total = Math.round(Number(totalAmountCents));
+      const count = Math.max(1, parseInt(totalInstallments, 10));
+
+      if (total <= 0) throw new Error('O valor total deve ser maior que zero.');
+
+      // Distribuição estrita de centavos inteiros (Prompt Mestre Seção 49)
+      const baseCents = Math.floor(total / count);
+      const remainder = total % count;
+
+      const now = new Date();
+      const nowIso = now.toISOString();
+      const parentBatchId = 'inst_' + Math.random().toString(36).substring(2, 9) + Date.now();
+
+      const createdTxs = [];
+
+      for (let i = 0; i < count; i++) {
+        // Primeira parcela absorve o resto da divisão para não perder nenhum centavo
+        const installmentAmount = i === 0 ? baseCents + remainder : baseCents;
+
+        // Calcula a data da parcela (mês a mês)
+        const targetDate = new Date(firstDate.getFullYear(), firstDate.getMonth() + i, firstDate.getDate(), 12, 0, 0);
+
+        // Se a parcela for no débito e data for hoje ou passada: CONFIRMED
+        // Se for cartão de crédito ou data futura: PENDING
+        const isFirstAndDebit = i === 0 && accountId && !cardId && targetDate <= now;
+        const status = isFirstAndDebit ? 'CONFIRMED' : 'PENDING';
+
+        const txId = 'tx_' + parentBatchId + '_' + (i + 1);
+
+        const { data: tx, error } = await supabase.from('transactions').insert({
+          id: txId,
+          userId,
+          accountId: accountId || null,
+          cardId: cardId || null,
+          categoryId: categoryId || null,
+          type: 'EXPENSE',
+          amountCents: installmentAmount,
+          description: `${description.trim()} (${i + 1}/${count})`,
+          notes: notes ? `${notes} • Parcela ${i + 1}/${count}` : `Parcela ${i + 1} de ${count}`,
+          date: targetDate.toISOString(),
+          status,
+          isRecurring: false,
+          updatedAt: nowIso,
+        }).select().single();
+
+        if (error) throw error;
+        createdTxs.push(tx);
+
+        // Atualiza saldo se for débito imediato confirmado
+        if (status === 'CONFIRMED' && accountId) {
+          const { data: acc } = await supabase
+            .from('accounts')
+            .select('currentBalanceCents')
+            .eq('id', accountId)
+            .single();
+
+          if (acc) {
+            const current = Number(acc.currentBalanceCents || 0);
+            await supabase
+              .from('accounts')
+              .update({
+                currentBalanceCents: current - installmentAmount,
+                updatedAt: nowIso,
+              })
+              .eq('id', accountId);
+          }
+        }
+      }
+
+      return { success: true, count: createdTxs.length, transactions: createdTxs };
+    } catch (err) {
+      console.error('Erro ao lançar parcelamento:', err);
+      return { success: false, error: err.message || 'Falha ao registrar parcelamento.' };
     }
   },
 };
