@@ -7,6 +7,7 @@ import {
   FlatList,
   RefreshControl,
   TouchableOpacity,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
@@ -16,7 +17,13 @@ import { NewTransactionModal } from '../components/NewTransactionModal';
 import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
 import { CategoryPieChart } from '../components/CategoryPieChart';
 
+const MONTH_NAMES = [
+  'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+];
+
 export function TransactionsScreen({ user }) {
+  const now = new Date();
   const [viewMode, setViewMode] = useState('LIST'); // 'LIST' | 'CHART'
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -24,8 +31,17 @@ export function TransactionsScreen({ user }) {
   const [accounts, setAccounts] = useState([]);
   const [cards, setCards] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [filterType, setFilterType] = useState('ALL'); // 'ALL' | 'EXPENSE' | 'INCOME'
+
+  // Filtros de Tipo e Busca
+  const [filterType, setFilterType] = useState('ALL'); // 'ALL' | 'EXPENSE' | 'INCOME' | 'RECURRING'
   const [search, setSearch] = useState('');
+
+  // Filtro de Datas
+  const [selectedMonth, setSelectedMonth] = useState(now.getMonth());
+  const [selectedYear, setSelectedYear] = useState(now.getFullYear());
+  const [dateFilterMode, setDateFilterMode] = useState('CURRENT_MONTH'); // 'CURRENT_MONTH' | 'PREV_MONTH' | 'LAST_30_DAYS' | 'CUSTOM_MONTH' | 'ALL'
+
+  // Modais
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedTx, setSelectedTx] = useState(null);
 
@@ -36,7 +52,7 @@ export function TransactionsScreen({ user }) {
       await api.syncRecurring(user.id);
 
       const [txs, accs, crds, cats] = await Promise.all([
-        api.getTransactions(user.id, 100),
+        api.getTransactions(user.id, 250),
         api.getAccounts(user.id),
         api.getCards(user.id),
         api.getCategories(user.id),
@@ -57,7 +73,78 @@ export function TransactionsScreen({ user }) {
     loadData();
   }, [loadData]);
 
-  const filteredTransactions = transactions.filter((tx) => {
+  // Controles de navegação de data
+  const handlePrevMonth = () => {
+    let m = selectedMonth - 1;
+    let y = selectedYear;
+    if (m < 0) {
+      m = 11;
+      y -= 1;
+    }
+    setSelectedMonth(m);
+    setSelectedYear(y);
+    setDateFilterMode('CUSTOM_MONTH');
+  };
+
+  const handleNextMonth = () => {
+    let m = selectedMonth + 1;
+    let y = selectedYear;
+    if (m > 11) {
+      m = 0;
+      y += 1;
+    }
+    setSelectedMonth(m);
+    setSelectedYear(y);
+    setDateFilterMode('CUSTOM_MONTH');
+  };
+
+  const handleSetCurrentMonth = () => {
+    setSelectedMonth(now.getMonth());
+    setSelectedYear(now.getFullYear());
+    setDateFilterMode('CURRENT_MONTH');
+  };
+
+  const handleSetPrevMonth = () => {
+    let m = now.getMonth() - 1;
+    let y = now.getFullYear();
+    if (m < 0) {
+      m = 11;
+      y -= 1;
+    }
+    setSelectedMonth(m);
+    setSelectedYear(y);
+    setDateFilterMode('PREV_MONTH');
+  };
+
+  // Label do período exibido
+  let periodLabel = `${MONTH_NAMES[selectedMonth]} ${selectedYear}`;
+  if (dateFilterMode === 'LAST_30_DAYS') {
+    periodLabel = 'Últimos 30 dias';
+  } else if (dateFilterMode === 'ALL') {
+    periodLabel = 'Todas as Datas';
+  }
+
+  // 1. Filtro por Data
+  const dateFilteredTransactions = transactions.filter((tx) => {
+    if (dateFilterMode === 'ALL') return true;
+
+    const txDate = new Date(tx.date);
+
+    if (dateFilterMode === 'LAST_30_DAYS') {
+      const diffMs = now.getTime() - txDate.getTime();
+      const diffDays = diffMs / (1000 * 60 * 60 * 24);
+      return diffDays >= -1 && diffDays <= 30;
+    }
+
+    // CURRENT_MONTH, PREV_MONTH ou CUSTOM_MONTH
+    return (
+      txDate.getMonth() === selectedMonth &&
+      txDate.getFullYear() === selectedYear
+    );
+  });
+
+  // 2. Filtro por Tipo e Busca (para a lista de extrato)
+  const filteredTransactions = dateFilteredTransactions.filter((tx) => {
     const isRecurringOrInstallment =
       Boolean(tx.isRecurring) ||
       Boolean(tx.recurringTransactionId) ||
@@ -74,12 +161,22 @@ export function TransactionsScreen({ user }) {
       search.trim() === ''
         ? true
         : (tx.description || '').toLowerCase().includes(search.toLowerCase());
+
     return matchesType && matchesSearch;
   });
 
+  // Totais do período filtrado
+  const periodIncomeCents = dateFilteredTransactions
+    .filter((t) => t.type === 'INCOME')
+    .reduce((acc, t) => acc + Number(t.amountCents || 0), 0);
+
+  const periodExpenseCents = dateFilteredTransactions
+    .filter((t) => t.type === 'EXPENSE')
+    .reduce((acc, t) => acc + Number(t.amountCents || 0), 0);
+
   return (
     <View style={styles.container}>
-      {/* SELETOR DE MODO: LISTA DE EXTRATO VS GRÁFICO DE PIZZA */}
+      {/* SELETOR DE MODO: LISTA DE EXTRATO VS ANÁLISE DE GASTOS */}
       <View style={styles.viewModeContainer}>
         <TouchableOpacity
           style={[styles.viewModeTab, viewMode === 'LIST' && styles.viewModeTabActive]}
@@ -122,6 +219,65 @@ export function TransactionsScreen({ user }) {
         </TouchableOpacity>
       </View>
 
+      {/* BARRA DE NAVEGAÇÃO DE DATAS (MÊS ANTERIOR / PRÓXIMO) */}
+      <View style={styles.dateNavigator}>
+        <TouchableOpacity
+          style={styles.dateNavArrow}
+          onPress={handlePrevMonth}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="chevron-back" size={18} color={colors.primary} />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.dateNavCenter}
+          onPress={handleSetCurrentMonth}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="calendar-outline" size={15} color={colors.primary} />
+          <Text style={styles.dateNavLabel}>{periodLabel}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.dateNavArrow}
+          onPress={handleNextMonth}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="chevron-forward" size={18} color={colors.primary} />
+        </TouchableOpacity>
+      </View>
+
+      {/* CHIPS DE FILTRO RÁPIDO DE DATAS */}
+      <View style={styles.dateChipsWrapper}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.dateChipsContainer}
+        >
+          {[
+            { id: 'CURRENT_MONTH', label: 'Este Mês', action: handleSetCurrentMonth },
+            { id: 'PREV_MONTH', label: 'Mês Anterior', action: handleSetPrevMonth },
+            { id: 'LAST_30_DAYS', label: '30 Dias', action: () => setDateFilterMode('LAST_30_DAYS') },
+            { id: 'ALL', label: 'Todas as Datas', action: () => setDateFilterMode('ALL') },
+          ].map((item) => {
+            const isActive = dateFilterMode === item.id;
+            return (
+              <TouchableOpacity
+                key={item.id}
+                style={[styles.dateChip, isActive && styles.dateChipActive]}
+                onPress={item.action}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.dateChipText, isActive && styles.dateChipTextActive]}>
+                  {item.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
+
+      {/* CONTEÚDO PRINCIPAL: ANÁLISE DE GASTOS VS LISTA DE EXTRATO */}
       {viewMode === 'CHART' ? (
         <ScrollView
           contentContainerStyle={{ paddingBottom: 90 }}
@@ -139,14 +295,15 @@ export function TransactionsScreen({ user }) {
           showsVerticalScrollIndicator={false}
         >
           <CategoryPieChart
-            transactions={transactions}
+            transactions={dateFilteredTransactions}
             categories={categories}
             hideValues={false}
+            periodLabel={periodLabel}
           />
         </ScrollView>
       ) : (
         <>
-          {/* BARRA DE PESQUISA & FILTROS */}
+          {/* BARRA DE PESQUISA & FILTROS DE TIPO */}
           <View style={styles.filtersContainer}>
             <View style={styles.searchBar}>
               <Ionicons name="search" size={18} color={colors.textMuted} />
@@ -164,7 +321,7 @@ export function TransactionsScreen({ user }) {
               ) : null}
             </View>
 
-            {/* CHIPS DE FILTRO */}
+            {/* CHIPS DE FILTRO DE TIPO */}
             <View style={styles.chipsRow}>
               {[
                 { id: 'ALL', label: 'Todas' },
@@ -187,108 +344,166 @@ export function TransactionsScreen({ user }) {
                 );
               })}
             </View>
+
+            {/* MINI RESUMO DE TOTAIS DO PERÍODO */}
+            <View style={styles.periodSummaryBar}>
+              <Text style={styles.periodSummaryCount}>
+                {filteredTransactions.length} {filteredTransactions.length === 1 ? 'registro' : 'registros'}
+              </Text>
+              <View style={styles.periodSummaryMetrics}>
+                <Text style={styles.periodIncomeText}>
+                  + {formatCurrency(periodIncomeCents)}
+                </Text>
+                <Text style={styles.periodExpenseText}>
+                  - {formatCurrency(periodExpenseCents)}
+                </Text>
+              </View>
+            </View>
           </View>
 
-      {/* LISTA DE TRANSAÇÕES */}
-      <FlatList
-        data={filteredTransactions}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.listContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => {
-              setRefreshing(true);
-              loadData();
-            }}
-            tintColor={colors.primary}
-            colors={[colors.primary]}
-          />
-        }
-        ListEmptyComponent={
-          !loading && (
-            <Card style={styles.emptyCard}>
-              <Ionicons name="receipt-outline" size={36} color={colors.textMuted} />
-              <Text style={styles.emptyTitle}>Nenhuma transação encontrada</Text>
-              <Text style={styles.emptySubtitle}>
-                {search ? 'Tente mudar o termo da busca' : 'Toque no + para lançar uma nova transação'}
-              </Text>
-            </Card>
-          )
-        }
-        renderItem={({ item: tx }) => {
-          const isExpense = tx.type === 'EXPENSE';
-          const isPending = tx.status === 'PENDING';
-          const isRecurring = Boolean(tx.isRecurring || tx.recurringTransactionId);
-          const isInstallment = typeof tx.notes === 'string' && (tx.notes.includes('Parcela ') || tx.notes.includes('parcela'));
-
-          return (
-            <TouchableOpacity
-              style={[styles.txRow, isPending && styles.txRowPending]}
-              activeOpacity={0.7}
-              onPress={() => setSelectedTx(tx)}
-            >
-              <View
-                style={[
-                  styles.txIconBox,
-                  { backgroundColor: isExpense ? colors.expenseGhost : colors.incomeGhost },
-                ]}
-              >
-                <Ionicons
-                  name={isPending ? 'time' : (isExpense ? 'arrow-down' : 'arrow-up')}
-                  size={18}
-                  color={isPending ? colors.warning : (isExpense ? colors.expense : colors.income)}
-                />
-              </View>
-
-              <View style={styles.txDetails}>
-                <View style={styles.txTitleRow}>
-                  <Text style={styles.txTitle} numberOfLines={1} ellipsizeMode="tail">
-                    {tx.description}
+          {/* LISTA DE TRANSAÇÕES */}
+          <FlatList
+            data={filteredTransactions}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.listContent}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={() => {
+                  setRefreshing(true);
+                  loadData();
+                }}
+                tintColor={colors.primary}
+                colors={[colors.primary]}
+              />
+            }
+            ListEmptyComponent={
+              !loading && (
+                <Card style={styles.emptyCard}>
+                  <Ionicons name="receipt-outline" size={36} color={colors.textMuted} />
+                  <Text style={styles.emptyTitle}>Nenhuma transação encontrada</Text>
+                  <Text style={styles.emptySubtitle}>
+                    {search
+                      ? 'Tente mudar o termo da busca ou o filtro de data'
+                      : 'Nenhum lançamento no período selecionado'}
                   </Text>
-                  {isPending && (
-                    <View style={styles.pendingBadge}>
-                      <Text style={styles.pendingBadgeText}>A VENCER</Text>
-                    </View>
-                  )}
-                  {isRecurring && !isPending && (
-                    <View style={styles.recurringTag}>
-                      <Text style={styles.recurringTagText}>Fixa</Text>
-                    </View>
-                  )}
-                  {isInstallment && (
-                    <View style={styles.installmentTag}>
-                      <Text style={styles.installmentTagText}>Parcela</Text>
-                    </View>
-                  )}
-                </View>
-                <Text style={styles.txDate} numberOfLines={1} ellipsizeMode="tail">
-                  {formatDate(tx.date)}{tx.notes ? ` • ${tx.notes}` : ''}
-                </Text>
-              </View>
+                </Card>
+              )
+            }
+            renderItem={({ item: tx }) => {
+              const isExpense = tx.type === 'EXPENSE';
+              const isPending = tx.status === 'PENDING';
+              const isRecurring = Boolean(tx.isRecurring || tx.recurringTransactionId);
+              const isInstallment =
+                typeof tx.notes === 'string' &&
+                (tx.notes.includes('Parcela ') || tx.notes.includes('parcela'));
 
-              <View style={styles.txRightCol}>
-                <Text
-                  style={[
-                    styles.txValue,
-                    { color: isPending ? colors.warning : (isExpense ? colors.expense : colors.income) },
-                  ]}
-                  numberOfLines={1}
+              return (
+                <TouchableOpacity
+                  style={[styles.txRow, isPending && styles.txRowPending]}
+                  activeOpacity={0.7}
+                  onPress={() => setSelectedTx(tx)}
                 >
-                  {isExpense ? '-' : '+'} {formatCurrency(tx.amountCents)}
-                </Text>
-                {isPending && (
-                  <Text style={styles.txPendingSub}>Toque p/ pagar</Text>
-                )}
-              </View>
-            </TouchableOpacity>
-          );
-        }}
-      />
+                  <View
+                    style={[
+                      styles.txIconBox,
+                      { backgroundColor: isExpense ? colors.expenseGhost : colors.incomeGhost },
+                    ]}
+                  >
+                    <Ionicons
+                      name={isPending ? 'time' : isExpense ? 'arrow-down' : 'arrow-up'}
+                      size={18}
+                      color={
+                        isPending
+                          ? colors.warning
+                          : isExpense
+                          ? colors.expense
+                          : colors.income
+                      }
+                    />
+                  </View>
+
+                  <View style={styles.txDetails}>
+                    <View style={styles.txTitleRow}>
+                      <Text style={styles.txTitle} numberOfLines={1} ellipsizeMode="tail">
+                        {tx.description}
+                      </Text>
+                      {isPending && (
+                        <View style={styles.pendingBadge}>
+                          <Text style={styles.pendingBadgeText}>A VENCER</Text>
+                        </View>
+                      )}
+                      {isRecurring && !isPending && (
+                        <View style={styles.recurringTag}>
+                          <Text style={styles.recurringTagText}>Fixa</Text>
+                        </View>
+                      )}
+                      {isInstallment && (
+                        <View style={styles.installmentTag}>
+                          <Text style={styles.installmentTagText}>Parcela</Text>
+                        </View>
+                      )}
+                    </View>
+
+                    <View style={styles.txMetaRow}>
+                      <Text style={styles.txDate}>{formatDate(tx.date)}</Text>
+                      {tx.category && (
+                        <>
+                          <Text style={styles.metaDot}>•</Text>
+                          <Text style={styles.txCategory} numberOfLines={1}>
+                            {tx.category.name}
+                          </Text>
+                        </>
+                      )}
+                      {tx.account && (
+                        <>
+                          <Text style={styles.metaDot}>•</Text>
+                          <Text style={styles.txAccount} numberOfLines={1}>
+                            {tx.account.name}
+                          </Text>
+                        </>
+                      )}
+                      {tx.card && (
+                        <>
+                          <Text style={styles.metaDot}>•</Text>
+                          <Text style={styles.txCard} numberOfLines={1}>
+                            💳 {tx.card.name}
+                          </Text>
+                        </>
+                      )}
+                    </View>
+
+                    {tx.notes && !isInstallment ? (
+                      <Text style={styles.txNotes} numberOfLines={1}>
+                        {tx.notes}
+                      </Text>
+                    ) : null}
+                  </View>
+
+                  <View style={styles.txRightCol}>
+                    <Text
+                      style={[
+                        styles.txAmount,
+                        { color: isExpense ? colors.expense : colors.income },
+                        isPending && { color: colors.warning },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {isExpense ? '-' : '+'}
+                      {formatCurrency(tx.amountCents)}
+                    </Text>
+                    {isPending && (
+                      <Text style={styles.txPendingSub}>Previsto</Text>
+                    )}
+                  </View>
+                </TouchableOpacity>
+              );
+            }}
+          />
         </>
       )}
 
-      {/* BOTÃO FLUTUANTE */}
+      {/* FAB ADICIONAR TRANSAÇÃO */}
       <TouchableOpacity
         style={styles.fab}
         onPress={() => setModalVisible(true)}
@@ -297,7 +512,7 @@ export function TransactionsScreen({ user }) {
         <Ionicons name="add" size={28} color={colors.textInverse} />
       </TouchableOpacity>
 
-      {/* MODAL NATIVO NOVA TRANSAÇÃO */}
+      {/* MODAL NOVA TRANSAÇÃO */}
       <NewTransactionModal
         visible={modalVisible}
         onClose={() => setModalVisible(false)}
@@ -308,7 +523,7 @@ export function TransactionsScreen({ user }) {
         categories={categories}
       />
 
-      {/* MODAL NATIVO DETALHES DA TRANSAÇÃO / CONTA */}
+      {/* MODAL DETALHES DA TRANSAÇÃO */}
       <TransactionDetailsModal
         visible={!!selectedTx}
         onClose={() => setSelectedTx(null)}
@@ -332,10 +547,10 @@ const styles = StyleSheet.create({
   },
   viewModeContainer: {
     flexDirection: 'row',
-    backgroundColor: colors.surfaceElevated,
+    backgroundColor: colors.surface,
     marginHorizontal: 20,
-    marginTop: 14,
-    marginBottom: 4,
+    marginTop: 12,
+    marginBottom: 8,
     borderRadius: 12,
     padding: 4,
     borderWidth: 1,
@@ -347,60 +562,106 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingVertical: 9,
-    borderRadius: 9,
+    paddingVertical: 8,
+    borderRadius: 8,
   },
   viewModeTabActive: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.borderHighlight,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
+    backgroundColor: colors.surfaceElevated,
   },
   viewModeTabText: {
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '600',
     color: colors.textMuted,
   },
   viewModeTabTextActive: {
     color: colors.primary,
-    fontWeight: '900',
+    fontWeight: '800',
+  },
+  dateNavigator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.surface,
+    marginHorizontal: 20,
+    marginBottom: 8,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: colors.borderHighlight,
+  },
+  dateNavArrow: {
+    padding: 6,
+    borderRadius: 8,
+    backgroundColor: colors.primaryGhost,
+  },
+  dateNavCenter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  dateNavLabel: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  dateChipsWrapper: {
+    marginBottom: 10,
+  },
+  dateChipsContainer: {
+    paddingHorizontal: 20,
+    gap: 8,
+  },
+  dateChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: colors.borderHighlight,
+  },
+  dateChipActive: {
+    backgroundColor: colors.primaryGhost,
+    borderColor: colors.primary,
+  },
+  dateChipText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.textMuted,
+  },
+  dateChipTextActive: {
+    color: colors.primary,
+    fontWeight: '800',
   },
   filtersContainer: {
     paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 12,
-    backgroundColor: colors.background,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    marginBottom: 10,
+    gap: 8,
   },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.surfaceElevated,
+    backgroundColor: colors.surface,
     borderRadius: 12,
     paddingHorizontal: 12,
-    height: 44,
-    gap: 8,
+    paddingVertical: 8,
     borderWidth: 1,
     borderColor: colors.borderHighlight,
+    gap: 8,
   },
   searchInput: {
     flex: 1,
     color: colors.text,
     fontSize: 14,
+    padding: 0,
   },
   chipsRow: {
     flexDirection: 'row',
     gap: 8,
-    marginTop: 12,
   },
   chip: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: 8,
     backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
@@ -411,98 +672,100 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
   },
   chipText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
-    color: colors.textSecondary,
+    color: colors.textMuted,
   },
   chipTextActive: {
     color: colors.primary,
     fontWeight: '800',
   },
+  periodSummaryBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 4,
+    paddingHorizontal: 2,
+  },
+  periodSummaryCount: {
+    fontSize: 11,
+    color: colors.textMuted,
+    fontWeight: '600',
+  },
+  periodSummaryMetrics: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  periodIncomeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.income,
+  },
+  periodExpenseText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.expense,
+  },
   listContent: {
-    padding: 20,
+    paddingHorizontal: 20,
     paddingBottom: 90,
   },
   txRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: colors.surface,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 14,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderHighlight,
+  },
+  txRowPending: {
+    opacity: 0.85,
   },
   txIconBox: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
+    width: 38,
+    height: 38,
+    borderRadius: 12,
     alignItems: 'center',
+    justifyContent: 'center',
     marginRight: 12,
-    flexShrink: 0,
   },
   txDetails: {
     flex: 1,
-    marginRight: 12,
-    justifyContent: 'center',
-  },
-  txTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.text,
-    marginBottom: 4,
-  },
-  txDate: {
-    fontSize: 12,
-    color: colors.textMuted,
-  },
-  txRightCol: {
-    alignItems: 'flex-end',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-  txValue: {
-    fontSize: 15,
-    fontWeight: '800',
-    textAlign: 'right',
-  },
-  txRowPending: {
-    borderColor: colors.warning,
-    borderLeftWidth: 4,
-    borderLeftColor: colors.warning,
-    backgroundColor: colors.surfaceElevated,
+    marginRight: 10,
   },
   txTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    flexWrap: 'wrap',
     gap: 6,
     marginBottom: 4,
   },
+  txTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.text,
+    flexShrink: 1,
+  },
   pendingBadge: {
-    backgroundColor: colors.warningGhost,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    backgroundColor: colors.warning + '22',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: colors.warning,
+    borderColor: colors.warning + '44',
   },
   pendingBadgeText: {
-    fontSize: 9,
-    fontWeight: '900',
+    fontSize: 8,
+    fontWeight: '800',
     color: colors.warning,
   },
   recurringTag: {
     backgroundColor: colors.primaryGhost,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
     borderRadius: 4,
   },
   recurringTagText: {
-    fontSize: 9,
+    fontSize: 8,
     fontWeight: '800',
     color: colors.primary,
   },
@@ -510,20 +773,60 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
     borderColor: colors.borderHighlight,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
     borderRadius: 4,
   },
   installmentTagText: {
-    fontSize: 9,
+    fontSize: 8,
     fontWeight: '700',
     color: colors.textSecondary,
   },
-  txPendingSub: {
+  txMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 4,
+  },
+  txDate: {
+    fontSize: 11,
+    color: colors.textMuted,
+  },
+  metaDot: {
+    fontSize: 11,
+    color: colors.textMuted,
+  },
+  txCategory: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    fontWeight: '600',
+  },
+  txAccount: {
+    fontSize: 11,
+    color: colors.textSecondary,
+  },
+  txCard: {
+    fontSize: 11,
+    color: colors.textSecondary,
+  },
+  txNotes: {
     fontSize: 10,
+    color: colors.textMuted,
+    fontStyle: 'italic',
+    marginTop: 2,
+  },
+  txRightCol: {
+    alignItems: 'flex-end',
+    gap: 2,
+  },
+  txAmount: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  txPendingSub: {
+    fontSize: 9,
     fontWeight: '700',
     color: colors.warning,
-    marginTop: 2,
   },
   emptyCard: {
     alignItems: 'center',
