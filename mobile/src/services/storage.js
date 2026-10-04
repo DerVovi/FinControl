@@ -10,6 +10,8 @@ const KEYS = {
   ACCOUNTS_CACHE: '@fincontrol_accounts_cache',
   TRANSACTIONS_CACHE: '@fincontrol_transactions_cache',
   CARDS_CACHE: '@fincontrol_cards_cache',
+  CATEGORIES_CACHE: '@fincontrol_categories_cache',
+  RECURRING_CACHE: '@fincontrol_recurring_cache',
 };
 
 const memoryStore = {};
@@ -79,6 +81,15 @@ export const storage = {
       return null;
     } catch {
       return memoryStore[key] ? JSON.parse(memoryStore[key]) : null;
+    }
+  },
+
+  getMemoryCache(key) {
+    try {
+      if (memoryStore[key]) return JSON.parse(memoryStore[key]);
+      return null;
+    } catch {
+      return null;
     }
   },
 

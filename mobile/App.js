@@ -22,6 +22,7 @@ import { TransactionsScreen } from './src/screens/TransactionsScreen';
 import { WalletScreen } from './src/screens/WalletScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { storage } from './src/services/storage';
+import { api } from './src/services/api';
 
 // Error Boundary para blindar o app contra qualquer crash nativo
 class ErrorBoundary extends Component {
@@ -68,11 +69,25 @@ function MainApp() {
   const [initializing, setInitializing] = useState(true);
   const [user, setUser] = useState(null);
   const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard' | 'transactions' | 'cards' | 'settings'
+  const [visitedTabs, setVisitedTabs] = useState(new Set(['dashboard']));
 
-  // Verificação instantânea de sessão local (0.05s)
+  const handleTabPress = (tabId) => {
+    setActiveTab(tabId);
+    setVisitedTabs((prev) => {
+      if (prev.has(tabId)) return prev;
+      const next = new Set(prev);
+      next.add(tabId);
+      return next;
+    });
+  };
+
+  // Verificação instantânea de sessão local com pré-aquecimento de cache
   useEffect(() => {
     async function checkSession() {
       try {
+        // Pré-aquece o cache de dados em segundo plano (0ms de atraso percebido)
+        api.loadAllCached().catch(() => {});
+
         const savedUser = await storage.getUser();
         if (savedUser) {
           setUser(savedUser);
@@ -130,19 +145,52 @@ function MainApp() {
       {/* CABEÇALHO COM NOTCH SAFE AREA E STATUS SUPABASE */}
       <Header user={user} onLogout={handleLogout} />
 
-      {/* ÁREA DE CONTEÚDO PRINCIPAL (TELA ATIVA) */}
+      {/* ÁREA DE CONTEÚDO PRINCIPAL (TELAS MANTIDAS VIVAS COM RENDERIZAÇÃO INSTANTÂNEA) */}
       <View style={styles.content}>
-        {activeTab === 'dashboard' && (
+        <View
+          style={[
+            styles.screenWrapper,
+            activeTab === 'dashboard' ? styles.screenVisible : styles.screenHidden,
+          ]}
+        >
           <DashboardScreen
             user={user}
-            onNavigateToTransactions={() => setActiveTab('transactions')}
-            onNavigateToWallet={() => setActiveTab('wallet')}
+            onNavigateToTransactions={() => handleTabPress('transactions')}
+            onNavigateToWallet={() => handleTabPress('wallet')}
           />
+        </View>
+
+        {visitedTabs.has('transactions') && (
+          <View
+            style={[
+              styles.screenWrapper,
+              activeTab === 'transactions' ? styles.screenVisible : styles.screenHidden,
+            ]}
+          >
+            <TransactionsScreen user={user} />
+          </View>
         )}
-        {activeTab === 'transactions' && <TransactionsScreen user={user} />}
-        {activeTab === 'wallet' && <WalletScreen user={user} />}
-        {activeTab === 'settings' && (
-          <SettingsScreen user={user} onLogout={handleLogout} />
+
+        {visitedTabs.has('wallet') && (
+          <View
+            style={[
+              styles.screenWrapper,
+              activeTab === 'wallet' ? styles.screenVisible : styles.screenHidden,
+            ]}
+          >
+            <WalletScreen user={user} />
+          </View>
+        )}
+
+        {visitedTabs.has('settings') && (
+          <View
+            style={[
+              styles.screenWrapper,
+              activeTab === 'settings' ? styles.screenVisible : styles.screenHidden,
+            ]}
+          >
+            <SettingsScreen user={user} onLogout={handleLogout} />
+          </View>
         )}
       </View>
 
@@ -159,7 +207,7 @@ function MainApp() {
             <TouchableOpacity
               key={tab.id}
               style={styles.tabItem}
-              onPress={() => setActiveTab(tab.id)}
+              onPress={() => handleTabPress(tab.id)}
               activeOpacity={0.7}
             >
               <Ionicons
@@ -207,6 +255,15 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+  },
+  screenWrapper: {
+    flex: 1,
+  },
+  screenVisible: {
+    display: 'flex',
+  },
+  screenHidden: {
+    display: 'none',
   },
   bottomBar: {
     flexDirection: 'row',

@@ -24,13 +24,16 @@ const MONTH_NAMES = [
 
 export function TransactionsScreen({ user }) {
   const now = new Date();
+  const initialCache = api.getSyncMemoryCache();
+  const hasInitialData = initialCache.transactions.length > 0;
+
   const [viewMode, setViewMode] = useState('LIST'); // 'LIST' | 'CHART'
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!hasInitialData);
   const [refreshing, setRefreshing] = useState(false);
-  const [transactions, setTransactions] = useState([]);
-  const [accounts, setAccounts] = useState([]);
-  const [cards, setCards] = useState([]);
-  const [categories, setCategories] = useState([]);
+  const [transactions, setTransactions] = useState(initialCache.transactions);
+  const [accounts, setAccounts] = useState(initialCache.accounts);
+  const [cards, setCards] = useState(initialCache.cards);
+  const [categories, setCategories] = useState(initialCache.categories);
 
   // Filtros de Tipo e Busca
   const [filterType, setFilterType] = useState('ALL'); // 'ALL' | 'EXPENSE' | 'INCOME' | 'RECURRING'
@@ -45,12 +48,28 @@ export function TransactionsScreen({ user }) {
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedTx, setSelectedTx] = useState(null);
 
-  const loadData = useCallback(async () => {
+  // Hidratação imediata do cache local (0ms)
+  useEffect(() => {
+    let mounted = true;
+    async function hydrateCache() {
+      const cached = await api.loadAllCached();
+      if (!mounted) return;
+      if (cached.transactions.length > 0) setTransactions(cached.transactions);
+      if (cached.accounts.length > 0) setAccounts(cached.accounts);
+      if (cached.cards.length > 0) setCards(cached.cards);
+      if (cached.categories.length > 0) setCategories(cached.categories);
+      if (cached.transactions.length > 0) setLoading(false);
+    }
+    hydrateCache();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const loadData = useCallback(async (isManualRefresh = false) => {
     if (!user) return;
     try {
-      // Sincroniza contas fixas pendentes/confirmadas antes de puxar a lista
-      await api.syncRecurring(user.id);
-
+      // 1. Carrega transações em paralelo sem travar esperando syncRecurring
       const [txs, accs, crds, cats] = await Promise.all([
         api.getTransactions(user.id, 250),
         api.getAccounts(user.id),
@@ -61,6 +80,13 @@ export function TransactionsScreen({ user }) {
       setAccounts(accs);
       setCards(crds);
       setCategories(cats);
+
+      // 2. Sincroniza em background
+      api.syncRecurring(user.id, isManualRefresh).then((res) => {
+        if (res && res.createdCount > 0) {
+          api.getTransactions(user.id, 250).then(setTransactions);
+        }
+      }).catch(console.warn);
     } catch (err) {
       console.warn('Erro ao carregar transações:', err);
     } finally {
@@ -69,8 +95,13 @@ export function TransactionsScreen({ user }) {
     }
   }, [user]);
 
+  // Carrega ao montar e se inscreve para atualizações em tempo real
   useEffect(() => {
     loadData();
+    const unsubscribe = api.subscribe(() => {
+      loadData(false);
+    });
+    return () => unsubscribe();
   }, [loadData]);
 
   // Controles de navegação de data

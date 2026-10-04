@@ -24,25 +24,47 @@ export function DashboardScreen({
   onNavigateToTransactions,
   onNavigateToWallet,
 }) {
-  const [loading, setLoading] = useState(true);
+  const initialCache = api.getSyncMemoryCache();
+  const hasInitialData =
+    initialCache.accounts.length > 0 || initialCache.transactions.length > 0;
+
+  const [loading, setLoading] = useState(!hasInitialData);
   const [refreshing, setRefreshing] = useState(false);
-  const [accounts, setAccounts] = useState([]);
-  const [transactions, setTransactions] = useState([]);
-  const [cards, setCards] = useState([]);
-  const [categories, setCategories] = useState([]);
-  const [recurringBills, setRecurringBills] = useState([]);
+  const [accounts, setAccounts] = useState(initialCache.accounts);
+  const [transactions, setTransactions] = useState(initialCache.transactions);
+  const [cards, setCards] = useState(initialCache.cards);
+  const [categories, setCategories] = useState(initialCache.categories);
+  const [recurringBills, setRecurringBills] = useState(initialCache.recurring);
   const [hideValues, setHideValues] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [recurringModalVisible, setRecurringModalVisible] = useState(false);
   const [selectedTx, setSelectedTx] = useState(null);
 
-  const loadData = useCallback(async () => {
+  // Hidratação imediata do cache local para abertura instantânea (0ms)
+  useEffect(() => {
+    let mounted = true;
+    async function hydrateCache() {
+      const cached = await api.loadAllCached();
+      if (!mounted) return;
+      if (cached.accounts.length > 0) setAccounts(cached.accounts);
+      if (cached.transactions.length > 0) setTransactions(cached.transactions);
+      if (cached.cards.length > 0) setCards(cached.cards);
+      if (cached.categories.length > 0) setCategories(cached.categories);
+      if (cached.recurring.length > 0) setRecurringBills(cached.recurring);
+      if (cached.accounts.length > 0 || cached.transactions.length > 0) {
+        setLoading(false);
+      }
+    }
+    hydrateCache();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const loadData = useCallback(async (isManualRefresh = false) => {
     if (!user) return;
     try {
-      // 1. Sincroniza instâncias de contas fixas para o mês corrente
-      await api.syncRecurring(user.id);
-
-      // 2. Carrega todos os dados atualizados (100 transações para gráficos e previsão orçamentária)
+      // 1. Carrega dados em paralelo direto do Supabase sem travar na sincronização de contas
       const [accs, txs, crds, cats, recs] = await Promise.all([
         api.getAccounts(user.id),
         api.getTransactions(user.id, 100),
@@ -55,6 +77,13 @@ export function DashboardScreen({
       setCards(crds);
       setCategories(cats);
       setRecurringBills(recs || []);
+
+      // 2. Sincroniza contas fixas em segundo plano sem bloquear a interface
+      api.syncRecurring(user.id, isManualRefresh).then((res) => {
+        if (res && res.createdCount > 0) {
+          api.getTransactions(user.id, 100).then(setTransactions);
+        }
+      }).catch(console.warn);
     } catch (err) {
       console.warn('Erro ao carregar dados do Dashboard:', err);
     } finally {
@@ -63,13 +92,18 @@ export function DashboardScreen({
     }
   }, [user]);
 
+  // Carrega ao montar e se inscreve para atualizações em tempo real entre abas
   useEffect(() => {
     loadData();
+    const unsubscribe = api.subscribe(() => {
+      loadData(false);
+    });
+    return () => unsubscribe();
   }, [loadData]);
 
   const onRefresh = () => {
     setRefreshing(true);
-    loadData();
+    loadData(true);
   };
 
   // Cálculo de Saldo Total

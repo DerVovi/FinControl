@@ -36,6 +36,57 @@ export function formatDate(dateStr) {
 }
 
 export const api = {
+  // Pub/Sub para atualização reativa instantânea entre abas
+  _listeners: new Set(),
+  subscribe(fn) {
+    this._listeners.add(fn);
+    return () => this._listeners.delete(fn);
+  },
+  notifyDataChanged() {
+    this._listeners.forEach((fn) => {
+      try { fn(); } catch (e) { console.warn('notify listener error:', e); }
+    });
+  },
+
+  // Cache instantâneo síncrono em memória (0ms - zero delay)
+  getSyncMemoryCache() {
+    return {
+      accounts: storage.getMemoryCache(storage.KEYS.ACCOUNTS_CACHE) || [],
+      transactions: storage.getMemoryCache(storage.KEYS.TRANSACTIONS_CACHE) || [],
+      cards: storage.getMemoryCache(storage.KEYS.CARDS_CACHE) || [],
+      categories: storage.getMemoryCache(storage.KEYS.CATEGORIES_CACHE) || [],
+      recurring: storage.getMemoryCache(storage.KEYS.RECURRING_CACHE) || [],
+    };
+  },
+
+  // Carregamento rápido assíncrono de todo o cache local
+  async loadAllCached() {
+    try {
+      const [accounts, transactions, cards, categories, recurring] = await Promise.all([
+        storage.getCache(storage.KEYS.ACCOUNTS_CACHE),
+        storage.getCache(storage.KEYS.TRANSACTIONS_CACHE),
+        storage.getCache(storage.KEYS.CARDS_CACHE),
+        storage.getCache(storage.KEYS.CATEGORIES_CACHE),
+        storage.getCache(storage.KEYS.RECURRING_CACHE),
+      ]);
+      return {
+        accounts: accounts || [],
+        transactions: transactions || [],
+        cards: cards || [],
+        categories: categories || [],
+        recurring: recurring || [],
+      };
+    } catch {
+      return {
+        accounts: [],
+        transactions: [],
+        cards: [],
+        categories: [],
+        recurring: [],
+      };
+    }
+  },
+
   // Autenticação
   async login(email, password) {
     try {
@@ -180,6 +231,7 @@ export const api = {
         .single();
 
       if (error) throw error;
+      this.notifyDataChanged();
       return { success: true, card: data };
     } catch (err) {
       console.error('Erro ao cadastrar cartão:', err);
@@ -197,10 +249,13 @@ export const api = {
         .order('name', { ascending: true });
 
       if (error) throw error;
+      if (data) {
+        await storage.saveCache(storage.KEYS.CATEGORIES_CACHE, data);
+      }
       return data || [];
     } catch (err) {
       console.warn('Erro ao buscar categorias no Supabase:', err);
-      return [];
+      return (await storage.getCache(storage.KEYS.CATEGORIES_CACHE)) || [];
     }
   },
 
@@ -281,6 +336,7 @@ export const api = {
         }
       }
 
+      this.notifyDataChanged();
       return { success: true, transaction: tx };
     } catch (err) {
       console.error('Erro ao criar transação:', err);
@@ -343,6 +399,7 @@ export const api = {
         .single();
 
       if (updateErr) throw updateErr;
+      this.notifyDataChanged();
       return { success: true, transaction: updatedTx };
     } catch (err) {
       console.error('Erro ao atualizar transação:', err);
@@ -368,6 +425,7 @@ export const api = {
       }).select().single();
 
       if (error) throw error;
+      this.notifyDataChanged();
       return { success: true, account: data };
     } catch (err) {
       return { success: false, error: err.message || 'Falha ao criar conta.' };
@@ -395,6 +453,7 @@ export const api = {
         .single();
 
       if (error) throw error;
+      this.notifyDataChanged();
       return { success: true, account: data };
     } catch (err) {
       console.error('Erro ao atualizar conta:', err);
@@ -419,6 +478,7 @@ export const api = {
         .eq('id', accountId);
 
       if (error) throw error;
+      this.notifyDataChanged();
       return { success: true };
     } catch (err) {
       console.error('Erro ao excluir conta:', err);
@@ -463,6 +523,7 @@ export const api = {
         .eq('id', tx.id);
 
       if (error) throw error;
+      this.notifyDataChanged();
       return { success: true };
     } catch (err) {
       console.error('Erro ao excluir transação:', err);
@@ -485,10 +546,13 @@ export const api = {
         .order('dayOfMonth', { ascending: true });
 
       if (error) throw error;
+      if (data) {
+        await storage.saveCache(storage.KEYS.RECURRING_CACHE, data);
+      }
       return data || [];
     } catch (err) {
       console.warn('Erro ao buscar contas fixas:', err);
-      return [];
+      return (await storage.getCache(storage.KEYS.RECURRING_CACHE)) || [];
     }
   },
 
@@ -538,7 +602,8 @@ export const api = {
       if (error) throw error;
 
       // Executa auto-sync imediato para materializar no mês atual
-      await this.syncRecurring(userId);
+      await this.syncRecurring(userId, true);
+      this.notifyDataChanged();
 
       return { success: true, recurring: data };
     } catch (err) {
@@ -556,6 +621,7 @@ export const api = {
         .eq('id', recurringId);
 
       if (error) throw error;
+      this.notifyDataChanged();
       return { success: true };
     } catch (err) {
       console.error('Erro ao remover conta fixa:', err);
@@ -586,6 +652,7 @@ export const api = {
         .single();
 
       if (error) throw error;
+      this.notifyDataChanged();
       return { success: true, recurring: data };
     } catch (err) {
       console.error('Erro ao atualizar conta fixa:', err);
@@ -593,11 +660,18 @@ export const api = {
     }
   },
 
+  _lastSyncTime: 0,
   // Motor de Sincronização Automática: Materializa as contas fixas do mês corrente
-  async syncRecurring(userId) {
+  async syncRecurring(userId, force = false) {
     try {
+      const nowMs = Date.now();
+      if (!force && nowMs - this._lastSyncTime < 10 * 60 * 1000) {
+        return { success: true, skipped: true, createdCount: 0 };
+      }
+      this._lastSyncTime = nowMs;
+
       const recurringList = await this.getRecurring(userId);
-      if (!recurringList || recurringList.length === 0) return { processed: 0 };
+      if (!recurringList || recurringList.length === 0) return { processed: 0, createdCount: 0 };
 
       const now = new Date();
       const currentYear = now.getFullYear();
@@ -707,6 +781,7 @@ export const api = {
         }
       }
 
+      this.notifyDataChanged();
       return { success: true, transaction: data };
     } catch (err) {
       console.error('Erro ao confirmar pagamento:', err);
@@ -756,6 +831,7 @@ export const api = {
         }
       }
 
+      this.notifyDataChanged();
       return { success: true, transaction: data };
     } catch (err) {
       console.error('Erro ao reverter pagamento:', err);

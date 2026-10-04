@@ -45,11 +45,14 @@ const ACCOUNT_COLORS = [
 
 export function WalletScreen({ user }) {
   const [activeTab, setActiveTab] = useState('ACCOUNTS'); // 'ACCOUNTS' | 'CARDS'
-  const [loading, setLoading] = useState(true);
+  const initialCache = api.getSyncMemoryCache();
+  const hasInitialData = initialCache.accounts.length > 0 || initialCache.cards.length > 0;
+
+  const [loading, setLoading] = useState(!hasInitialData);
   const [refreshing, setRefreshing] = useState(false);
-  const [accounts, setAccounts] = useState([]);
-  const [cards, setCards] = useState([]);
-  const [transactions, setTransactions] = useState([]);
+  const [accounts, setAccounts] = useState(initialCache.accounts);
+  const [cards, setCards] = useState(initialCache.cards);
+  const [transactions, setTransactions] = useState(initialCache.transactions);
 
   // Modais
   const [cardModalVisible, setCardModalVisible] = useState(false);
@@ -62,6 +65,23 @@ export function WalletScreen({ user }) {
   const [newAccountColor, setNewAccountColor] = useState(ACCOUNT_COLORS[0]);
   const [newAccountBalanceStr, setNewAccountBalanceStr] = useState('0,00');
   const [creatingAccount, setCreatingAccount] = useState(false);
+
+  // Hidratação imediata do cache local (0ms)
+  useEffect(() => {
+    let mounted = true;
+    async function hydrateCache() {
+      const cached = await api.loadAllCached();
+      if (!mounted) return;
+      if (cached.accounts.length > 0) setAccounts(cached.accounts);
+      if (cached.cards.length > 0) setCards(cached.cards);
+      if (cached.transactions.length > 0) setTransactions(cached.transactions);
+      if (cached.accounts.length > 0 || cached.cards.length > 0) setLoading(false);
+    }
+    hydrateCache();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const loadData = useCallback(async () => {
     if (!user) return;
@@ -84,6 +104,10 @@ export function WalletScreen({ user }) {
 
   useEffect(() => {
     loadData();
+    const unsubscribe = api.subscribe(() => {
+      loadData();
+    });
+    return () => unsubscribe();
   }, [loadData]);
 
   // Cálculos de Resumo
