@@ -15,11 +15,14 @@ import { Badge } from '../components/Badge';
 import { api, formatCurrency, formatDate } from '../services/api';
 import { NewTransactionModal } from '../components/NewTransactionModal';
 import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
-import { AccountDetailsModal } from '../components/AccountDetailsModal';
 import { RecurringBillsModal } from '../components/RecurringBillsModal';
 import { MonthlyForecastSummary } from '../components/MonthlyForecastSummary';
 
-export function DashboardScreen({ user, onNavigateToTransactions }) {
+export function DashboardScreen({
+  user,
+  onNavigateToTransactions,
+  onNavigateToWallet,
+}) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [accounts, setAccounts] = useState([]);
@@ -31,7 +34,6 @@ export function DashboardScreen({ user, onNavigateToTransactions }) {
   const [modalVisible, setModalVisible] = useState(false);
   const [recurringModalVisible, setRecurringModalVisible] = useState(false);
   const [selectedTx, setSelectedTx] = useState(null);
-  const [selectedAccount, setSelectedAccount] = useState(null);
 
   const loadData = useCallback(async () => {
     if (!user) return;
@@ -121,7 +123,18 @@ export function DashboardScreen({ user, onNavigateToTransactions }) {
         <Card style={styles.mainBalanceCard}>
           <View style={styles.mainBalanceHeader}>
             <Text style={styles.mainBalanceLabel}>Saldo Geral em Contas</Text>
-            <Badge title="NUVEM SUPABASE" />
+            {onNavigateToWallet ? (
+              <TouchableOpacity
+                onPress={onNavigateToWallet}
+                style={styles.walletShortcutBtn}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.walletShortcutText}>Ver Carteira</Text>
+                <Ionicons name="arrow-forward" size={12} color={colors.primary} />
+              </TouchableOpacity>
+            ) : (
+              <Badge title="NUVEM SUPABASE" />
+            )}
           </View>
 
           <Text style={[styles.mainBalanceValue, totalBalanceCents < 0 && { color: colors.expense }]}>
@@ -166,39 +179,6 @@ export function DashboardScreen({ user, onNavigateToTransactions }) {
           recurringBills={recurringBills}
           hideValues={hideValues}
         />
-
-        {/* 3. CARROSSEL DE CONTAS BANCÁRIAS */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Suas Contas</Text>
-          <Text style={styles.sectionSubtitle}>{accounts.length} cadastrada(s)</Text>
-        </View>
-
-        {accounts.length === 0 && !loading ? (
-          <Card style={styles.emptyCard}>
-            <Ionicons name="wallet-outline" size={32} color={colors.textMuted} />
-            <Text style={styles.emptyText}>Nenhuma conta cadastrada ainda.</Text>
-          </Card>
-        ) : (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.accountsScroll}>
-            {accounts.map((acc) => (
-              <Card
-                key={acc.id}
-                style={styles.accountCard}
-                elevated
-                onPress={() => setSelectedAccount(acc)}
-              >
-                <View style={styles.accountCardTop}>
-                  <View style={[styles.accountColorDot, { backgroundColor: acc.color || colors.primary }]} />
-                  <Text style={styles.accountType}>{acc.type}</Text>
-                </View>
-                <Text style={styles.accountName} numberOfLines={1}>{acc.name}</Text>
-                <Text style={[styles.accountBalance, Number(acc.currentBalanceCents) < 0 && { color: colors.expense }]}>
-                  {hideValues ? '••••' : formatCurrency(acc.currentBalanceCents)}
-                </Text>
-              </Card>
-            ))}
-          </ScrollView>
-        )}
 
         {/* 4. SEÇÃO DE CONTAS FIXAS & VENCIMENTOS */}
         <View style={styles.sectionHeader}>
@@ -363,22 +343,6 @@ export function DashboardScreen({ user, onNavigateToTransactions }) {
         categories={categories}
       />
 
-      {/* MODAL DETALHES DA CONTA BANCÁRIA */}
-      <AccountDetailsModal
-        visible={!!selectedAccount}
-        onClose={() => setSelectedAccount(null)}
-        account={selectedAccount}
-        transactions={transactions}
-        onSelectTransaction={(tx) => setSelectedTx(tx)}
-        onUpdated={() => {
-          setSelectedAccount(null);
-          loadData();
-        }}
-        onDeleted={() => {
-          setSelectedAccount(null);
-          loadData();
-        }}
-      />
 
       {/* MODAL DETALHES DO LANÇAMENTO / CONTA */}
       <TransactionDetailsModal
@@ -451,6 +415,20 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.textSecondary,
     fontWeight: '600',
+  },
+  walletShortcutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.primaryGhost,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  walletShortcutText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.primary,
   },
   mainBalanceValue: {
     fontSize: 34,

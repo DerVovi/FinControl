@@ -19,7 +19,7 @@ import { Header } from './src/components/Header';
 import { AuthScreen } from './src/screens/AuthScreen';
 import { DashboardScreen } from './src/screens/DashboardScreen';
 import { TransactionsScreen } from './src/screens/TransactionsScreen';
-import { CardsScreen } from './src/screens/CardsScreen';
+import { WalletScreen } from './src/screens/WalletScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { storage } from './src/services/storage';
 
@@ -136,10 +136,11 @@ function MainApp() {
           <DashboardScreen
             user={user}
             onNavigateToTransactions={() => setActiveTab('transactions')}
+            onNavigateToWallet={() => setActiveTab('wallet')}
           />
         )}
         {activeTab === 'transactions' && <TransactionsScreen user={user} />}
-        {activeTab === 'cards' && <CardsScreen user={user} />}
+        {activeTab === 'wallet' && <WalletScreen user={user} />}
         {activeTab === 'settings' && (
           <SettingsScreen user={user} onLogout={handleLogout} />
         )}
@@ -150,7 +151,7 @@ function MainApp() {
         {[
           { id: 'dashboard', label: 'Início', icon: 'home-outline', iconActive: 'home' },
           { id: 'transactions', label: 'Extrato', icon: 'receipt-outline', iconActive: 'receipt' },
-          { id: 'cards', label: 'Cartões', icon: 'card-outline', iconActive: 'card' },
+          { id: 'wallet', label: 'Carteira', icon: 'wallet-outline', iconActive: 'wallet' },
           { id: 'settings', label: 'Ajustes', icon: 'settings-outline', iconActive: 'settings' },
         ].map((tab) => {
           const isActive = activeTab === tab.id;

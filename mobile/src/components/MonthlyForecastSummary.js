@@ -93,10 +93,10 @@ export function MonthlyForecastSummary({
             />
           </View>
           <View style={styles.collapsedTextBox}>
-            <Text style={styles.collapsedTitle}>
-              {isShortage ? 'Falta para fechar o mês:' : 'Contas do mês cobertas!'}
+            <Text style={styles.collapsedTitle} numberOfLines={1}>
+              {isShortage ? 'Falta para fechar o mês' : 'Contas do mês cobertas!'}
             </Text>
-            <Text style={styles.collapsedSub}>
+            <Text style={styles.collapsedSub} numberOfLines={1}>
               {isShortage ? 'Toque para ver fatura e contas' : 'Saldo positivo previsto • Detalhes'}
             </Text>
           </View>
@@ -134,31 +134,36 @@ export function MonthlyForecastSummary({
         onPress={() => setExpanded(false)}
         style={styles.header}
       >
-        <View style={styles.headerLeft}>
-          <View style={styles.headerIconBox}>
-            <Ionicons name="calendar" size={18} color={colors.primary} />
+        <View style={styles.headerTopRow}>
+          <View style={styles.headerTitleBox}>
+            <View style={styles.headerIconBox}>
+              <Ionicons name="calendar" size={16} color={colors.primary} />
+            </View>
+            <Text style={styles.title} numberOfLines={1}>
+              Resumo do Mês
+            </Text>
           </View>
-          <View>
-            <Text style={styles.title}>Resumo do Mês • {currentMonthName}</Text>
-            <Text style={styles.subtitle}>Previsão orçamentária e cobertura do cartão</Text>
+
+          <View style={[styles.statusBadge, isShortage ? styles.shortageBadge : styles.coveredBadge]}>
+            <Ionicons
+              name={isShortage ? 'alert-circle' : 'checkmark-circle'}
+              size={12}
+              color={isShortage ? colors.expense : colors.income}
+            />
+            <Text style={[styles.statusBadgeText, { color: isShortage ? colors.expense : colors.income }]}>
+              {isShortage ? 'Faltam Recursos' : 'Contas Cobertas'}
+            </Text>
+            <Ionicons
+              name="chevron-up"
+              size={12}
+              color={isShortage ? colors.expense : colors.income}
+            />
           </View>
         </View>
 
-        <View style={[styles.statusBadge, isShortage ? styles.shortageBadge : styles.coveredBadge]}>
-          <Ionicons
-            name={isShortage ? 'alert-circle' : 'checkmark-circle'}
-            size={13}
-            color={isShortage ? colors.expense : colors.income}
-          />
-          <Text style={[styles.statusBadgeText, { color: isShortage ? colors.expense : colors.income }]}>
-            {isShortage ? 'Faltam Recursos' : 'Contas Cobertas'}
-          </Text>
-          <Ionicons
-            name="chevron-up"
-            size={13}
-            color={isShortage ? colors.expense : colors.income}
-          />
-        </View>
+        <Text style={styles.subtitle} numberOfLines={1}>
+          {currentMonthName} • Previsão orçamentária e cobertura de cartões
+        </Text>
       </TouchableOpacity>
 
       {/* BANNER PRINCIPAL DE RESULTADO */}
@@ -285,6 +290,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     flex: 1,
+    marginRight: 8,
   },
   collapsedIconBox: {
     width: 34,
@@ -316,6 +322,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    flexShrink: 0,
   },
   collapsedAmount: {
     fontSize: 14,
@@ -331,21 +338,25 @@ const styles = StyleSheet.create({
     borderColor: colors.borderHighlight,
   },
   header: {
+    marginBottom: 14,
+  },
+  headerTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 14,
+    marginBottom: 4,
   },
-  headerLeft: {
+  headerTitleBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
     flex: 1,
+    marginRight: 8,
   },
   headerIconBox: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
+    width: 32,
+    height: 32,
+    borderRadius: 8,
     backgroundColor: colors.primaryGhost,
     alignItems: 'center',
     justifyContent: 'center',
@@ -358,7 +369,7 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 11,
     color: colors.textMuted,
-    marginTop: 1,
+    marginLeft: 40,
   },
   statusBadge: {
     flexDirection: 'row',
@@ -367,6 +378,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
+    flexShrink: 0,
   },
   shortageBadge: {
     backgroundColor: colors.expenseGhost,

@@ -107,7 +107,7 @@ export function TransactionsScreen({ user }) {
           activeOpacity={0.8}
         >
           <Ionicons
-            name="pie-chart"
+            name="stats-chart"
             size={16}
             color={viewMode === 'CHART' ? colors.primary : colors.textMuted}
           />
@@ -117,7 +117,7 @@ export function TransactionsScreen({ user }) {
               viewMode === 'CHART' && styles.viewModeTabTextActive,
             ]}
           >
-            Gráfico de Pizza
+            Análise de Gastos
           </Text>
         </TouchableOpacity>
       </View>
