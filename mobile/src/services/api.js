@@ -630,10 +630,9 @@ export const api = {
         const effectiveDay = Math.min(targetDay, maxDaysInMonth);
         const billDate = new Date(currentYear, currentMonth, effectiveDay, 12, 0, 0);
 
-        // Se a data de vencimento já chegou ou passou, já debita e marca CONFIRMED
-        // Se a data de vencimento é futura no mês, marca PENDING (a pagar)
-        const isPastOrToday = billDate <= now || billDate.toDateString() === now.toDateString();
-        const status = isPastOrToday ? 'CONFIRMED' : 'PENDING';
+        // Contas fixas geradas para o mês iniciam como PENDING (não pagas),
+        // permitindo ao usuário marcar como Paga ou identificar se está A Vencer / Vencida
+        const status = 'PENDING';
 
         const newTxId = 'tx_rec_' + Math.random().toString(36).substring(2, 10) + Date.now();
         const nowIso = new Date().toISOString();
@@ -656,26 +655,6 @@ export const api = {
 
         if (!insErr) {
           createdCount++;
-          // Se for CONFIRMED e tiver conta vinculada, atualiza o saldo
-          if (status === 'CONFIRMED' && rec.accountId) {
-            const { data: acc } = await supabase
-              .from('accounts')
-              .select('currentBalanceCents')
-              .eq('id', rec.accountId)
-              .single();
-
-            if (acc) {
-              const current = Number(acc.currentBalanceCents || 0);
-              const delta = rec.type === 'INCOME' ? Number(rec.amountCents) : -Number(rec.amountCents);
-              await supabase
-                .from('accounts')
-                .update({
-                  currentBalanceCents: current + delta,
-                  updatedAt: nowIso,
-                })
-                .eq('id', rec.accountId);
-            }
-          }
         }
       }
 
@@ -731,6 +710,106 @@ export const api = {
       return { success: true, transaction: data };
     } catch (err) {
       console.error('Erro ao confirmar pagamento:', err);
+      return { success: false, error: err.message };
+    }
+  },
+
+  // Reverter pagamento de uma transação confirmada (voltando para PENDING e estornando saldo)
+  async revertPendingTransaction(tx) {
+    try {
+      if (!tx || !tx.id) throw new Error('Transação inválida.');
+
+      const nowIso = new Date().toISOString();
+
+      // 1. Atualiza status para PENDING
+      const { data, error } = await supabase
+        .from('transactions')
+        .update({
+          status: 'PENDING',
+          updatedAt: nowIso,
+        })
+        .eq('id', tx.id)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // 2. Estorna o saldo da conta bancária vinculada
+      if (tx.accountId) {
+        const { data: acc } = await supabase
+          .from('accounts')
+          .select('currentBalanceCents')
+          .eq('id', tx.accountId)
+          .single();
+
+        if (acc) {
+          const current = Number(acc.currentBalanceCents || 0);
+          const cents = Number(tx.amountCents || 0);
+          const delta = tx.type === 'INCOME' ? -cents : cents;
+          await supabase
+            .from('accounts')
+            .update({
+              currentBalanceCents: current + delta,
+              updatedAt: nowIso,
+            })
+            .eq('id', tx.accountId);
+        }
+      }
+
+      return { success: true, transaction: data };
+    } catch (err) {
+      console.error('Erro ao reverter pagamento:', err);
+      return { success: false, error: err.message };
+    }
+  },
+
+  // Alternar pagamento da conta fixa no mês corrente (Paga <-> Pendente/Vencida)
+  async toggleRecurringPayment({ recurringId, userId }) {
+    try {
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth();
+      const startOfMonth = new Date(currentYear, currentMonth, 1).toISOString();
+      const endOfMonth = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59, 999).toISOString();
+
+      // Busca a transação do mês desta conta fixa
+      const { data: txs, error: fetchErr } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('userId', userId)
+        .eq('recurringTransactionId', recurringId)
+        .gte('date', startOfMonth)
+        .lte('date', endOfMonth)
+        .limit(1);
+
+      if (fetchErr) throw fetchErr;
+
+      let tx = txs && txs.length > 0 ? txs[0] : null;
+
+      if (!tx) {
+        await this.syncRecurring(userId);
+        const { data: refreshed } = await supabase
+          .from('transactions')
+          .select('*')
+          .eq('userId', userId)
+          .eq('recurringTransactionId', recurringId)
+          .gte('date', startOfMonth)
+          .lte('date', endOfMonth)
+          .limit(1);
+        tx = refreshed && refreshed.length > 0 ? refreshed[0] : null;
+      }
+
+      if (!tx) throw new Error('Transação da conta fixa não encontrada.');
+
+      if (tx.status === 'CONFIRMED') {
+        const res = await this.revertPendingTransaction(tx);
+        return { success: true, status: 'PENDING', transaction: res.transaction };
+      } else {
+        const res = await this.confirmPendingTransaction(tx);
+        return { success: true, status: 'CONFIRMED', transaction: res.transaction };
+      }
+    } catch (err) {
+      console.error('Erro ao alternar status da conta fixa:', err);
       return { success: false, error: err.message };
     }
   },

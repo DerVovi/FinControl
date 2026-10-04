@@ -33,6 +33,7 @@ export function RecurringBillsModal({
   onUpdate,
 }) {
   const [recurringList, setRecurringList] = useState([]);
+  const [monthTransactions, setMonthTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
@@ -53,8 +54,12 @@ export function RecurringBillsModal({
     setLoading(true);
     try {
       await api.syncRecurring(user.id);
-      const list = await api.getRecurring(user.id);
+      const [list, txs] = await Promise.all([
+        api.getRecurring(user.id),
+        api.getTransactions(user.id, 100),
+      ]);
       setRecurringList(list || []);
+      setMonthTransactions(txs || []);
     } catch (err) {
       console.warn('Erro ao carregar contas fixas:', err);
     } finally {
@@ -77,6 +82,49 @@ export function RecurringBillsModal({
       setSelectedCategoryId(available[0].id);
     }
   }, [type, categories]);
+
+  const now = new Date();
+  const currentMonth = now.getMonth();
+  const currentYear = now.getFullYear();
+  const currentDay = now.getDate();
+
+  const getBillMonthStatus = (item) => {
+    const tx = monthTransactions.find((t) => {
+      if (t.recurringTransactionId !== item.id) return false;
+      const d = new Date(t.date);
+      return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+    });
+
+    if (tx) {
+      if (tx.status === 'CONFIRMED') {
+        return { status: 'PAID', label: 'Paga', color: colors.income, tx };
+      }
+      const dueDay = Number(item.dayOfMonth) || 5;
+      if (dueDay < currentDay) {
+        return { status: 'OVERDUE', label: 'Vencida', color: colors.expense, tx };
+      }
+      return { status: 'PENDING', label: 'A Vencer', color: colors.warning, tx };
+    }
+
+    const dueDay = Number(item.dayOfMonth) || 5;
+    if (dueDay < currentDay) {
+      return { status: 'OVERDUE', label: 'Vencida', color: colors.expense, tx: null };
+    }
+    return { status: 'PENDING', label: 'A Vencer', color: colors.warning, tx: null };
+  };
+
+  const handleTogglePayment = async (item, billStatus) => {
+    try {
+      setLoading(true);
+      await api.toggleRecurringPayment({ recurringId: item.id, userId: user.id });
+      await loadRecurring();
+      if (onUpdate) onUpdate();
+    } catch (e) {
+      Alert.alert('Erro', e.message || 'Falha ao alterar status de pagamento.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleAmountChange = (text) => {
     const { formatted } = handleCurrencyInputChange(text);
@@ -413,6 +461,7 @@ export function RecurringBillsModal({
               recurringList.map((item) => {
                 const isExpense = item.type === 'EXPENSE';
                 const accountName = accounts.find((a) => a.id === item.accountId)?.name || 'Conta Principal';
+                const billStatus = getBillMonthStatus(item);
 
                 return (
                   <Card key={item.id} style={styles.recurringItemCard}>
@@ -433,6 +482,38 @@ export function RecurringBillsModal({
                         <Text style={styles.itemMeta}>
                           Todo dia {item.dayOfMonth} • {accountName}
                         </Text>
+
+                        {/* Status no mês atual com toque para alternar */}
+                        <TouchableOpacity
+                          style={[
+                            styles.statusToggleBtn,
+                            {
+                              backgroundColor: billStatus.color + '18',
+                              borderColor: billStatus.color + '55',
+                            },
+                          ]}
+                          onPress={() => handleTogglePayment(item, billStatus)}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons
+                            name={
+                              billStatus.status === 'PAID'
+                                ? 'checkmark-circle'
+                                : billStatus.status === 'OVERDUE'
+                                ? 'alert-circle'
+                                : 'time'
+                            }
+                            size={12}
+                            color={billStatus.color}
+                          />
+                          <Text style={[styles.statusToggleText, { color: billStatus.color }]}>
+                            {billStatus.status === 'PAID'
+                              ? 'Paga neste mês (Toque p/ desmarcar)'
+                              : billStatus.status === 'OVERDUE'
+                              ? 'Vencida neste mês (Toque p/ pagar)'
+                              : 'A Vencer neste mês (Toque p/ pagar)'}
+                          </Text>
+                        </TouchableOpacity>
                       </View>
                     </View>
 
@@ -831,5 +912,20 @@ const styles = StyleSheet.create({
     padding: 6,
     borderRadius: 6,
     backgroundColor: colors.expenseGhost,
+  },
+  statusToggleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    alignSelf: 'flex-start',
+  },
+  statusToggleText: {
+    fontSize: 10,
+    fontWeight: '700',
   },
 });

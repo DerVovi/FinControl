@@ -57,6 +57,11 @@ export function TransactionDetailsModal({
   const accountName = card ? `Cartão: ${card.name}` : (account?.name || 'Conta Padrão');
   const accountColor = card ? (card.color || colors.primary) : (account?.color || colors.primary);
 
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const isOverdue =
+    transaction.status === 'PENDING' && new Date(transaction.date) < startOfToday;
+
   const handleAmountChange = (text) => {
     const { formatted } = handleCurrencyInputChange(text);
     setEditAmountStr(formatted);
@@ -108,6 +113,24 @@ export function TransactionDetailsModal({
         onClose();
       } else {
         Alert.alert('Erro', res.error || 'Falha ao confirmar pagamento.');
+      }
+    } catch (err) {
+      Alert.alert('Erro', err.message || 'Erro inesperado.');
+    } finally {
+      setConfirming(false);
+    }
+  };
+
+  const handleRevertPayment = async () => {
+    setConfirming(true);
+    try {
+      const res = await api.revertPendingTransaction(transaction);
+      if (res.success) {
+        Alert.alert('Sucesso', 'Pagamento desmarcado e saldo estornado!');
+        if (onDeleted) onDeleted();
+        onClose();
+      } else {
+        Alert.alert('Erro', res.error || 'Falha ao desmarcar pagamento.');
       }
     } catch (err) {
       Alert.alert('Erro', err.message || 'Erro inesperado.');
@@ -374,9 +397,21 @@ export function TransactionDetailsModal({
                   <View style={[styles.detailRow, { borderBottomWidth: 0 }]}>
                     <View style={styles.detailIconBox}>
                       <Ionicons
-                        name={transaction.status === 'CONFIRMED' ? 'checkmark-circle-outline' : 'time-outline'}
+                        name={
+                          transaction.status === 'CONFIRMED'
+                            ? 'checkmark-circle-outline'
+                            : isOverdue
+                            ? 'alert-circle-outline'
+                            : 'time-outline'
+                        }
                         size={18}
-                        color={transaction.status === 'CONFIRMED' ? colors.primary : colors.warning}
+                        color={
+                          transaction.status === 'CONFIRMED'
+                            ? colors.income
+                            : isOverdue
+                            ? colors.expense
+                            : colors.warning
+                        }
                       />
                     </View>
                     <View style={styles.detailContent}>
@@ -385,14 +420,17 @@ export function TransactionDetailsModal({
                         <Text
                           style={[
                             styles.statusText,
-                            transaction.status === 'PENDING' && { color: colors.warning },
+                            transaction.status === 'CONFIRMED' && { color: colors.income },
+                            transaction.status === 'PENDING' && {
+                              color: isOverdue ? colors.expense : colors.warning,
+                            },
                           ]}
                         >
                           {transaction.status === 'CONFIRMED'
-                            ? 'Confirmado / Pago'
-                            : transaction.status === 'PENDING'
-                            ? 'Pendente (A Vencer)'
-                            : transaction.status}
+                            ? 'Paga / Confirmada'
+                            : isOverdue
+                            ? 'Vencida (Não Paga)'
+                            : 'A Vencer'}
                         </Text>
                         {transaction.isRecurring && (
                           <Text style={styles.statusSub}> • 🔄 Conta Fixa</Text>
@@ -405,7 +443,10 @@ export function TransactionDetailsModal({
                 {/* BOTÃO CONFIRMAR PAGAMENTO SE ESTIVER PENDENTE */}
                 {transaction.status === 'PENDING' && (
                   <TouchableOpacity
-                    style={styles.payBtn}
+                    style={[
+                      styles.payBtn,
+                      isOverdue && { backgroundColor: colors.expense },
+                    ]}
                     onPress={handleConfirmPayment}
                     disabled={confirming}
                     activeOpacity={0.8}
@@ -415,7 +456,30 @@ export function TransactionDetailsModal({
                     ) : (
                       <>
                         <Ionicons name="checkmark-done" size={20} color={colors.textInverse} />
-                        <Text style={styles.payBtnText}>Marcar como Paga / Debitar</Text>
+                        <Text style={styles.payBtnText}>
+                          {isOverdue ? 'Pagar Conta Vencida / Debitar' : 'Marcar como Paga / Debitar'}
+                        </Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                )}
+
+                {/* BOTÃO DESMARCAR PAGAMENTO SE ESTIVER CONFIRMADA */}
+                {transaction.status === 'CONFIRMED' && (
+                  <TouchableOpacity
+                    style={styles.revertBtn}
+                    onPress={handleRevertPayment}
+                    disabled={confirming}
+                    activeOpacity={0.8}
+                  >
+                    {confirming ? (
+                      <ActivityIndicator size="small" color={colors.warning} />
+                    ) : (
+                      <>
+                        <Ionicons name="arrow-undo-outline" size={18} color={colors.warning} />
+                        <Text style={styles.revertBtnText}>
+                          Desmarcar Pagamento (Voltar para Pendente)
+                        </Text>
                       </>
                     )}
                   </TouchableOpacity>
@@ -635,6 +699,23 @@ const styles = StyleSheet.create({
   payBtnText: {
     color: colors.textInverse,
     fontSize: 15,
+    fontWeight: '800',
+  },
+  revertBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.warning + '18',
+    borderWidth: 1,
+    borderColor: colors.warning + '55',
+    paddingVertical: 14,
+    borderRadius: 12,
+    gap: 8,
+    marginBottom: 10,
+  },
+  revertBtnText: {
+    color: colors.warning,
+    fontSize: 14,
     fontWeight: '800',
   },
   deleteBtn: {

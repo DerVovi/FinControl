@@ -398,6 +398,10 @@ export function TransactionsScreen({ user }) {
                 typeof tx.notes === 'string' &&
                 (tx.notes.includes('Parcela ') || tx.notes.includes('parcela'));
 
+              const now = new Date();
+              const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+              const isOverdue = isPending && new Date(tx.date) < startOfToday;
+
               return (
                 <TouchableOpacity
                   style={[styles.txRow, isPending && styles.txRowPending]}
@@ -407,15 +411,33 @@ export function TransactionsScreen({ user }) {
                   <View
                     style={[
                       styles.txIconBox,
-                      { backgroundColor: isExpense ? colors.expenseGhost : colors.incomeGhost },
+                      {
+                        backgroundColor: isPending
+                          ? isOverdue
+                            ? colors.expenseGhost
+                            : 'rgba(245, 158, 11, 0.15)'
+                          : isExpense
+                          ? colors.expenseGhost
+                          : colors.incomeGhost,
+                      },
                     ]}
                   >
                     <Ionicons
-                      name={isPending ? 'time' : isExpense ? 'arrow-down' : 'arrow-up'}
+                      name={
+                        isPending
+                          ? isOverdue
+                            ? 'alert-circle'
+                            : 'time'
+                          : isExpense
+                          ? 'arrow-down'
+                          : 'arrow-up'
+                      }
                       size={18}
                       color={
                         isPending
-                          ? colors.warning
+                          ? isOverdue
+                            ? colors.expense
+                            : colors.warning
                           : isExpense
                           ? colors.expense
                           : colors.income
@@ -429,11 +451,18 @@ export function TransactionsScreen({ user }) {
                         {tx.description}
                       </Text>
                       {isPending && (
-                        <View style={styles.pendingBadge}>
-                          <Text style={styles.pendingBadgeText}>A VENCER</Text>
+                        <View style={[styles.pendingBadge, isOverdue && styles.overdueBadge]}>
+                          <Text style={[styles.pendingBadgeText, isOverdue && styles.overdueBadgeText]}>
+                            {isOverdue ? 'VENCIDA' : 'A VENCER'}
+                          </Text>
                         </View>
                       )}
                       {isRecurring && !isPending && (
+                        <View style={[styles.recurringTag, styles.paidBadge]}>
+                          <Text style={[styles.recurringTagText, styles.paidBadgeText]}>PAGA</Text>
+                        </View>
+                      )}
+                      {isRecurring && isPending && (
                         <View style={styles.recurringTag}>
                           <Text style={styles.recurringTagText}>Fixa</Text>
                         </View>
@@ -485,16 +514,20 @@ export function TransactionsScreen({ user }) {
                       style={[
                         styles.txAmount,
                         { color: isExpense ? colors.expense : colors.income },
-                        isPending && { color: colors.warning },
+                        isPending && { color: isOverdue ? colors.expense : colors.warning },
                       ]}
                       numberOfLines={1}
                     >
                       {isExpense ? '-' : '+'}
                       {formatCurrency(tx.amountCents)}
                     </Text>
-                    {isPending && (
-                      <Text style={styles.txPendingSub}>Previsto</Text>
-                    )}
+                    {isPending ? (
+                      <Text style={[styles.txPendingSub, isOverdue && { color: colors.expense }]}>
+                        {isOverdue ? 'Vencida' : 'Previsto'}
+                      </Text>
+                    ) : isRecurring ? (
+                      <Text style={styles.txPaidSub}>Paga ✓</Text>
+                    ) : null}
                   </View>
                 </TouchableOpacity>
               );
@@ -758,6 +791,21 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: colors.warning,
   },
+  overdueBadge: {
+    backgroundColor: colors.expenseGhost,
+    borderColor: colors.expense + '55',
+  },
+  overdueBadgeText: {
+    color: colors.expense,
+  },
+  paidBadge: {
+    backgroundColor: colors.incomeGhost,
+    borderWidth: 1,
+    borderColor: colors.income + '44',
+  },
+  paidBadgeText: {
+    color: colors.income,
+  },
   recurringTag: {
     backgroundColor: colors.primaryGhost,
     paddingHorizontal: 5,
@@ -827,6 +875,11 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '700',
     color: colors.warning,
+  },
+  txPaidSub: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: colors.income,
   },
   emptyCard: {
     alignItems: 'center',

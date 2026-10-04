@@ -7,6 +7,7 @@ import {
   RefreshControl,
   TouchableOpacity,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
@@ -85,6 +86,86 @@ export function DashboardScreen({
   const totalExpenseCents = transactions
     .filter((t) => t.type === 'EXPENSE')
     .reduce((acc, t) => acc + Number(t.amountCents || 0), 0);
+
+  const now = new Date();
+  const currentMonth = now.getMonth();
+  const currentYear = now.getFullYear();
+  const currentDay = now.getDate();
+
+  const getBillMonthStatus = (item) => {
+    const tx = transactions.find((t) => {
+      if (t.recurringTransactionId !== item.id) return false;
+      const d = new Date(t.date);
+      return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+    });
+
+    if (tx) {
+      if (tx.status === 'CONFIRMED') {
+        return { status: 'PAID', label: 'Paga', color: colors.income, tx };
+      }
+      const dueDay = Number(item.dayOfMonth) || 5;
+      if (dueDay < currentDay) {
+        return { status: 'OVERDUE', label: 'Vencida', color: colors.expense, tx };
+      }
+      return { status: 'PENDING', label: 'A Vencer', color: colors.warning, tx };
+    }
+
+    const dueDay = Number(item.dayOfMonth) || 5;
+    if (dueDay < currentDay) {
+      return { status: 'OVERDUE', label: 'Vencida', color: colors.expense, tx: null };
+    }
+    return { status: 'PENDING', label: 'A Vencer', color: colors.warning, tx: null };
+  };
+
+  const handleToggleBillPayment = (item, billStatus) => {
+    if (billStatus.status === 'PAID') {
+      Alert.alert(
+        `${item.description}`,
+        'Esta conta fixa está marcada como PAGA neste mês. Deseja desmarcar o pagamento e estornar o saldo da conta?',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          {
+            text: 'Desmarcar Pagamento',
+            style: 'destructive',
+            onPress: async () => {
+              setRefreshing(true);
+              try {
+                await api.toggleRecurringPayment({ recurringId: item.id, userId: user.id });
+                await loadData();
+              } catch (e) {
+                Alert.alert('Erro', e.message || 'Falha ao desmarcar pagamento.');
+              } finally {
+                setRefreshing(false);
+              }
+            },
+          },
+        ]
+      );
+    } else {
+      const isOverdue = billStatus.status === 'OVERDUE';
+      Alert.alert(
+        `${item.description}`,
+        `${isOverdue ? '⚠️ Esta conta está VENCIDA. ' : ''}Deseja marcar esta conta como PAGA neste mês? O valor de ${formatCurrency(item.amountCents)} será debitado.`,
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          {
+            text: 'Confirmar Pagamento',
+            onPress: async () => {
+              setRefreshing(true);
+              try {
+                await api.toggleRecurringPayment({ recurringId: item.id, userId: user.id });
+                await loadData();
+              } catch (e) {
+                Alert.alert('Erro', e.message || 'Falha ao confirmar pagamento.');
+              } finally {
+                setRefreshing(false);
+              }
+            },
+          },
+        ]
+      );
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -222,12 +303,14 @@ export function DashboardScreen({
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.recurringScroll}>
             {recurringBills.map((item) => {
               const isExpense = item.type === 'EXPENSE';
+              const billStatus = getBillMonthStatus(item);
+
               return (
                 <Card
                   key={item.id}
                   style={styles.recurringCard}
                   elevated
-                  onPress={() => setRecurringModalVisible(true)}
+                  onPress={() => handleToggleBillPayment(item, billStatus)}
                 >
                   <View style={styles.recurringCardTop}>
                     <View
@@ -241,15 +324,76 @@ export function DashboardScreen({
                       </Text>
                       <Text style={styles.recurringDaySub}>DIA</Text>
                     </View>
-                    <Badge
-                      title={isExpense ? 'MENSAL' : 'RECEITA'}
-                      variant={isExpense ? 'warning' : 'success'}
-                    />
+
+                    {/* Badge de Status: PAGA / VENCIDA / A VENCER */}
+                    <View
+                      style={[
+                        styles.billStatusBadge,
+                        {
+                          backgroundColor: billStatus.color + '22',
+                          borderColor: billStatus.color + '55',
+                        },
+                      ]}
+                    >
+                      <Ionicons
+                        name={
+                          billStatus.status === 'PAID'
+                            ? 'checkmark-circle'
+                            : billStatus.status === 'OVERDUE'
+                            ? 'alert-circle'
+                            : 'time'
+                        }
+                        size={11}
+                        color={billStatus.color}
+                      />
+                      <Text style={[styles.billStatusText, { color: billStatus.color }]}>
+                        {billStatus.label}
+                      </Text>
+                    </View>
                   </View>
+
                   <Text style={styles.recurringCardName} numberOfLines={1}>{item.description}</Text>
                   <Text style={[styles.recurringCardAmount, isExpense ? styles.textExpense : styles.textIncome]}>
                     {hideValues ? '••••' : formatCurrency(item.amountCents)}
                   </Text>
+
+                  {/* Botão de Ação Rápida: Pagar / Desmarcar */}
+                  <TouchableOpacity
+                    style={[
+                      styles.billQuickBtn,
+                      billStatus.status === 'PAID'
+                        ? styles.billQuickBtnPaid
+                        : billStatus.status === 'OVERDUE'
+                        ? styles.billQuickBtnOverdue
+                        : styles.billQuickBtnPending,
+                    ]}
+                    onPress={() => handleToggleBillPayment(item, billStatus)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name={
+                        billStatus.status === 'PAID'
+                          ? 'checkmark'
+                          : billStatus.status === 'OVERDUE'
+                          ? 'alert'
+                          : 'arrow-forward'
+                      }
+                      size={12}
+                      color={billStatus.status === 'PAID' ? colors.income : '#FFFFFF'}
+                    />
+                    <Text
+                      style={[
+                        styles.billQuickBtnText,
+                        billStatus.status === 'PAID' && { color: colors.income },
+                      ]}
+                    >
+                      {billStatus.status === 'PAID'
+                        ? 'Paga ✓'
+                        : billStatus.status === 'OVERDUE'
+                        ? 'Pagar Vencida'
+                        : 'Pagar'}
+                    </Text>
+                  </TouchableOpacity>
                 </Card>
               );
             })}
@@ -673,7 +817,7 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   recurringCard: {
-    width: 170,
+    width: 185,
     marginRight: 12,
     padding: 14,
   },
@@ -682,6 +826,46 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 10,
+  },
+  billStatusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  billStatusText: {
+    fontSize: 9,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  billQuickBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 7,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  billQuickBtnPaid: {
+    backgroundColor: colors.incomeGhost,
+    borderWidth: 1,
+    borderColor: colors.income + '44',
+  },
+  billQuickBtnOverdue: {
+    backgroundColor: colors.expense,
+  },
+  billQuickBtnPending: {
+    backgroundColor: colors.primary,
+  },
+  billQuickBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.textInverse,
   },
   recurringDayBadge: {
     paddingHorizontal: 8,
